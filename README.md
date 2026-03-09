@@ -110,12 +110,12 @@ clinicdx/
 │       └── tests/
 │
 ├── training/
-│   ├── cds-lora/              # LoRA fine-tuning for CDS reasoning
+│   ├── cds-lora/              # CDS KB tool-use LoRA fine-tuning
 │   │   ├── train_cds_lora.py
 │   │   ├── config.yaml
 │   │   ├── data_loader.py
 │   │   ├── merge_lora.py
-│   │   ├── eval_medqa.py
+│   │   ├── prep_cds_training.py
 │   │   └── scripts/           # run_training.sh, deploy.sh, setup_env.sh
 │   │
 │   ├── scribe-projector/      # Audio projector training
@@ -148,12 +148,23 @@ ClinicDx uses a single fine-tuned model: **[`medgemma_cds_think_v1`](https://hug
 This model is derived from [Google's MedGemma](https://huggingface.co/google/medgemma-4b-it) through three training stages:
 
 ```
-MedGemma 4B-IT (base)
-      ↓  Stage 1: SFT on CDS reasoning dataset (200k examples)
-MedGemma-SFT
-      ↓  Stage 2: LoRA + GRPO on KB tool-use format
-medgemma_cds_think_v1  ← production model (LoRA merged)
-      ↓  Stage 3: AudioProjector training (11.8M params, frozen base)
+MedGemma 4B-IT (Google base, multimodal, 4.3B params)
+      │
+      ↓  Stage 1: SFT on 200k Voice Scribe medical text examples
+medgemma_sft  (text LoRA merged back into multimodal shell)
+      │
+      ↓  Stage 2: CDS KB tool-use LoRA (r=64, all 7 projection modules)
+      │    Dataset: 42k CDS cases, multi-turn <think>/<KB_QUERY> format
+      │    Best checkpoint: checkpoint-4500 (eval_loss 0.3178)
+medgemma_cds_kb  (LoRA merged — early production reference)
+      │
+      ↓  Stage 3 (current): re-trained on fresh enriched CDS dataset
+      │    Base: medgemma-4b-it (causal LM, vision frozen)
+      │    Format: [CDS] tag + <think>/<KB_QUERY> XML tool-use
+      │    Dataset: ~29k production CDS cases (v2), cyclic training
+medgemma_cds_think_v1  ← deployed model (LoRA merged)
+      │
+      ↓  Stage 4: AudioProjector training (11.8M params, frozen base)
 medgemma_cds_think_v1 + projector_final.pt  ← full Scribe model
 ```
 
@@ -178,7 +189,7 @@ The model queries a local KB during inference (CDS mode). The KB contains two [m
 | File | Contents |
 |---|---|
 | `who_knowledge.mv2` | WHO clinical guidelines, Africa-focused protocols |
-| `wikimed.mv2` | WikiMed medical reference corpus |
+| `wikimed_vec.mv2` | WikiMed medical reference corpus |
 
 Default location: `/var/www/kbToolUseLora/kb/` (override with `KB_INDEX_DIR` env var).
 
@@ -283,11 +294,58 @@ Set `middlewareUrl` in OpenMRS config to point to your middleware (`http://local
 
 See [`training/`](training/) for all training code.
 
+### CDS Model Training Pipeline
+
+The CDS model is trained using a **cyclic SFT approach** on production-enriched clinical cases:
+
+1. **Dataset enrichment** (`enrich_production.py`): 29,690 real OpenMRS patient cases are processed by `agent2.py` — a multi-turn ReAct agent that queries the live KB (WHO guidelines + WikiMed) and generates structured CDS outputs in `<think>/<KB_QUERY>/<KB_RESULT>` format. Enrichment runs continuously; training cycles start as batches complete.
+
+2. **Quality filtering** (`prep_cycle1.py`): Enriched records are filtered for structural completeness (`has_exact_six_sections`, `actions_evidence_mapped`, no `meta_contamination`) before being passed to the trainer.
+
+3. **LoRA fine-tuning** (`training/cds-lora/`): SFT on the enriched dataset using LoRA (r=64, all 7 projection modules) on top of `medgemma-4b-it`. Training uses a cyclic strategy — each cycle covers one pass through the current batch of enriched cases. Cycles continue until all 29k cases have been seen once, then a final 2-epoch run trains on the full dataset.
+
+4. **Merge** (`training/cds-lora/merge_lora.py`): Best LoRA checkpoint is merged into the base model weights to produce the standalone `medgemma_cds_v2` model.
+
+### Training Data Format
+
+Each training record is a pre-formatted Gemma 3 multi-turn conversation:
+
+```
+<bos><start_of_turn>user
+[CDS]
+Provide evidence-based clinical decision support for this patient.
+<patient case data>
+<end_of_turn>
+<start_of_turn>model
+<think>Clinical reasoning...</think>
+<KB_QUERY>search query terms</KB_QUERY><end_of_turn>
+<start_of_turn>user
+<KB_RESULT source="WikiMed" score="51.2">...retrieved text...</KB_RESULT><end_of_turn>
+<start_of_turn>model
+<think>Further reasoning...</think>
+<KB_QUERY>second query</KB_QUERY><end_of_turn>
+... (2–3 KB query turns) ...
+<start_of_turn>model
+<think>Final synthesis...</think>
+## Clinical Assessment
+...
+## Differential Diagnoses
+...
+## Recommended Investigations
+...
+## Treatment Plan
+...
+## Patient Education & Follow-Up
+...<end_of_turn>
+```
+
+### Training Folders
+
 | Folder | What it trains |
 |---|---|
-| `training/cds-lora/` | CDS reasoning LoRA on MedGemma (`train_cds_lora.py`) |
+| `training/cds-lora/` | CDS KB tool-use LoRA on MedGemma (`train_cds_lora.py`) |
 | `training/scribe-projector/` | AudioProjector mapping MedASR → MedGemma space |
-| `training/kb-tool-use-lora/` | KB tool-use format LoRA (2-query ReAct style) |
+| `training/kb-tool-use-lora/` | KB tool-use format LoRA (2-query ReAct style, earlier experiment) |
 
 Dataset preparation scripts are in [`dataset/`](dataset/).
 
