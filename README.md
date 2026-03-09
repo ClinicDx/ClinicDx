@@ -34,11 +34,11 @@
      ▼                    ▼
 ┌──────────────┐   ┌──────────────────────────────────────┐
 │  KB Daemon   │   │  Unified Model Server  (FastAPI:8000) │
-│  (port 4276) │   │                                       │
+│ (port 4278+) │   │                                       │
 │              │   │  MedASR encoder (105M, frozen)        │
-│  who_know.   │   │     ↓                                 │
-│  mv2         │   │  AudioProjector (11.8M, trained)      │
-│  wikimed.mv2 │   │     ↓                                 │
+│ who_know_vec │   │     ↓                                 │
+│  _v2.mv2     │   │  AudioProjector (11.8M, trained)      │
+│              │   │     ↓                                 │
 │              │   │  MedGemma CDS (4.3B, LoRA merged)     │
 │  /search     │   │                                       │
 │  (lex BM25)  │   │  POST /v1/completions  (CDS text)     │
@@ -102,21 +102,24 @@ clinicdx/
 │   │       ├── projector.py
 │   │       └── ciel_mappings.json  # CIEL concept → UUID/code map
 │   │
-│   └── knowledge-base/        # Local KB HTTP daemon (port 4276)
+│   └── knowledge-base/        # Local KB HTTP daemon (port 4278, v2)
 │       ├── kb/
-│       │   ├── retrieval_core.py  # KBRetriever (memvid, thread-safe)
-│       │   ├── daemon.py          # Stdlib ThreadingHTTPServer
-│       │   └── client.py          # HTTP client helpers
+│       │   ├── retrieval_core_v2.py  # KBRetriever v2 (WHO v2 index, RRF, intent-rerank)
+│       │   ├── daemon_v2.py          # ThreadingHTTPServer (port 4278, v2 index)
+│       │   ├── retrieval_core.py     # [legacy] v1 retriever
+│       │   ├── daemon.py             # [legacy] v1 daemon
+│       │   └── client.py             # HTTP client helpers
 │       └── tests/
 │
 ├── training/
 │   ├── cds-lora/              # CDS KB tool-use LoRA fine-tuning
-│   │   ├── train_cds_lora.py
+│   │   ├── train.py              # SFT trainer (v2, single-node, medgemma-4b-it)
 │   │   ├── config.yaml
 │   │   ├── data_loader.py
 │   │   ├── merge_lora.py
-│   │   ├── prep_cds_training.py
-│   │   └── scripts/           # run_training.sh, deploy.sh, setup_env.sh
+│   │   ├── validate.py
+│   │   ├── prep_cycle1.py        # Enriched shards → quality filter → train/val split
+│   │   └── scripts/              # [stale] run_training.sh, deploy.sh, setup_env.sh
 │   │
 │   ├── scribe-projector/      # AudioProjector training (only trainable component)
 │   │   ├── train_audio_projector.py
@@ -125,7 +128,7 @@ clinicdx/
 │   │   ├── validate_scribe.py
 │   │   └── configs/
 │   │
-│   └── kb-tool-use-lora/      # KB-aware LoRA (2-query tool-use format)
+│   └── kb-tool-use-lora/      # [ARCHIVED] superseded by cds-lora/ (v2)
 │       ├── train.py
 │       ├── config.yaml
 │       └── validate_kb_live.py
@@ -180,12 +183,11 @@ hf download ClinicDx1/ClinicDx --repo-type model \
 
 ### Knowledge Base
 
-The model queries a local KB during inference (CDS mode). The KB contains two [memvid](https://github.com/Oaynerad/memvid) indexes:
+The model queries a local KB during inference (CDS mode). The KB uses a single [memvid](https://github.com/Oaynerad/memvid) v2 index:
 
 | File | Contents |
 |---|---|
-| `who_knowledge.mv2` | WHO clinical guidelines, Africa-focused protocols |
-| `wikimed_vec.mv2` | WikiMed medical reference corpus |
+| `who_knowledge_vec_v2.mv2` | WHO/MSF clinical guidelines, Africa-focused protocols (v2, RRF-ready, 132K frames) |
 
 Default location: `/var/www/kbToolUseLora/kb/` (override with `KB_INDEX_DIR` env var).
 
@@ -199,7 +201,7 @@ Default location: `/var/www/kbToolUseLora/kb/` (override with `KB_INDEX_DIR` env
 cd services/knowledge-base
 pip install -r requirements.txt
 export KB_INDEX_DIR=/path/to/kb/indexes
-python -m kb.daemon 4276
+python3 -m kb.daemon_v2
 ```
 
 ### 2. Start the Unified Model Server
@@ -222,7 +224,7 @@ The server loads three components: MedASR encoder (105M, frozen), AudioProjector
 cd services/middleware
 pip install -r requirements.txt
 export MODEL_SERVER_URL=http://localhost:8000
-export KB_URL=http://localhost:4276
+export KB_URL=http://localhost:4278
 export OPENMRS_URL=http://localhost:8080/openmrs
 export OPENMRS_USER=admin
 export OPENMRS_PASSWORD=Admin123
@@ -265,7 +267,7 @@ Set `middlewareUrl` in OpenMRS config to point to your middleware (`http://local
 | `POST` | `/scribe/process_audio` | Audio → FHIR (direct, no text step) |
 | `POST` | `/scribe/confirm` | POST confirmed observations to OpenMRS |
 
-### KB Daemon (`port 4276`)
+### KB Daemon (`port 4278`)
 
 | Method | Path | Description |
 |---|---|---|
@@ -281,7 +283,7 @@ Set `middlewareUrl` in OpenMRS config to point to your middleware (`http://local
 |---|---|---|
 | `KB_INDEX_DIR` | `/var/www/kbToolUseLora/kb` | Path to `.mv2` KB index files |
 | `MODEL_SERVER_URL` | `http://10.128.0.4:8000` | Unified model server URL |
-| `KB_URL` | `http://10.128.0.4:4276` | KB daemon URL |
+| `KB_URL` | `http://10.128.0.4:4278` | KB daemon URL (v2, port 4278) |
 | `MODEL_NAME` | `/var/www/ClinicDx/model/medgemma_cds_think_v1` | Path to merged CDS model |
 | `OPENMRS_URL` | `http://localhost:8080/openmrs` | OpenMRS base URL |
 | `OPENMRS_USER` | `admin` | OpenMRS credentials |
@@ -352,9 +354,9 @@ Provide evidence-based clinical decision support for this patient.
 
 | Folder | What it trains |
 |---|---|
-| `training/cds-lora/` | CDS KB tool-use LoRA on MedGemma (`train_cds_lora.py`) |
+| `training/cds-lora/` | CDS KB tool-use LoRA on MedGemma (`train.py`) |
 | `training/scribe-projector/` | AudioProjector mapping MedASR → MedGemma space |
-| `training/kb-tool-use-lora/` | KB tool-use format LoRA (2-query ReAct style, earlier experiment) |
+| `training/kb-tool-use-lora/` | \[ARCHIVED\] KB tool-use format LoRA (earlier experiment, superseded by `cds-lora/`) |
 
 Dataset preparation scripts are in [`dataset/`](dataset/).
 
