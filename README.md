@@ -10,7 +10,7 @@
 
 Built on [OpenMRS O3](https://openmrs.org/) · Powered by [MedGemma](https://huggingface.co/google/medgemma-4b-it) · Runs fully offline
 
-[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](LICENSE)
+[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](LICENSE)
 [![OpenMRS](https://img.shields.io/badge/OpenMRS-O3-blue?logo=data:image/svg+xml;base64,)](https://openmrs.org/)
 [![HuggingFace](https://img.shields.io/badge/🤗%20Model-ClinicDx1%2FClinicDx-yellow)](https://huggingface.co/ClinicDx1/ClinicDx)
 [![Website](https://img.shields.io/badge/Website-clinicdx.org-informational)](https://clinicdx.org)
@@ -492,7 +492,7 @@ Areas where contributions are especially needed:
 
 ## License
 
-This project is licensed under the **Mozilla Public License 2.0** — see [LICENSE](LICENSE) for details.
+This project is licensed under the **Creative Commons Attribution 4.0 International (CC BY 4.0)** — see [LICENSE](LICENSE) for details.
 
 Model weights are subject to the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
 
