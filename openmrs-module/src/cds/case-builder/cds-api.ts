@@ -1,7 +1,30 @@
+import { openmrsFetch, getConfig } from '@openmrs/esm-framework';
+
+function getMiddlewareUrl(): string {
+  try {
+    const config = getConfig('@openmrs/esm-clinicdx-app') as { middlewareUrl?: string };
+    if (config?.middlewareUrl) {
+      return config.middlewareUrl.replace(/\/$/, '');
+    }
+  } catch {
+    // getConfig throws before config is resolved; fall through to default
+  }
+  return `${window.location.origin}/clinicdx-api`;
+}
+
+export interface KbHit {
+  title: string;
+  content: string;
+  score: number;
+  source: string;
+  uri: string;
+}
+
 export interface KbQueryResult {
   query: string;
   score: number;
   source: string;
+  hits: KbHit[];
 }
 
 export interface CdsResult {
@@ -19,59 +42,42 @@ export interface StreamEvent {
   query?: string;
   source?: string;
   score?: number;
+  hits?: KbHit[];
   message?: string;
   turns?: number;
   kb_queries?: KbQueryResult[];
 }
 
-function assertSafeUrl(middlewareUrl: string): void {
-  if (
-    !middlewareUrl.startsWith('https://') &&
-    !middlewareUrl.startsWith('/') &&
-    !middlewareUrl.startsWith(window.location.origin)
-  ) {
-    throw new Error(
-      `ClinicDx: middlewareUrl must start with 'https://', '/', or the current origin. ` +
-        `Got: ${middlewareUrl}`,
-    );
-  }
-}
-
-const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
-
-export async function generateCds(middlewareUrl: string, prompt: string): Promise<CdsResult> {
-  assertSafeUrl(middlewareUrl);
-  const res = await fetch(`${middlewareUrl}/cds/generate`, {
+export async function generateCds(prompt: string): Promise<CdsResult> {
+  const res = await fetch(`${getMiddlewareUrl()}/cds/generate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...CSRF_HEADER },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
   });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail || `CDS server error (${res.status})`);
+    throw new Error(body.detail || `CDS server error (${res.status})`);
   }
 
-  return res.json() as Promise<CdsResult>;
+  return res.json();
 }
 
 export async function generateCdsStreaming(
-  middlewareUrl: string,
   prompt: string,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  assertSafeUrl(middlewareUrl);
-  const res = await fetch(`${middlewareUrl}/cds/generate_stream`, {
+  const res = await fetch(`${getMiddlewareUrl()}/cds/generate_stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...CSRF_HEADER },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
     signal,
   });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail || `CDS server error (${res.status})`);
+    throw new Error(body.detail || `CDS server error (${res.status})`);
   }
 
   const reader = res.body?.getReader();
@@ -95,40 +101,21 @@ export async function generateCdsStreaming(
       if (payload === '[DONE]') return;
 
       try {
-        const event: StreamEvent = JSON.parse(payload) as StreamEvent;
+        const event: StreamEvent = JSON.parse(payload);
         onEvent(event);
       } catch {
         // skip malformed events
       }
     }
   }
-
-  // Process any remaining buffer content after stream ends (C-3 fix)
-  if (buffer.trim()) {
-    const trimmed = buffer.trim();
-    if (trimmed.startsWith('data: ')) {
-      const payload = trimmed.slice(6);
-      if (payload !== '[DONE]') {
-        try {
-          const event: StreamEvent = JSON.parse(payload) as StreamEvent;
-          onEvent(event);
-        } catch {
-          // skip malformed tail event
-        }
-      }
-    }
-  }
 }
 
-export async function checkCdsHealth(middlewareUrl: string): Promise<{
+export async function checkCdsHealth(): Promise<{
   status: string;
   model_server: { url: string; ok: boolean };
   kb: { url: string; ok: boolean };
 }> {
-  assertSafeUrl(middlewareUrl);
-  const res = await fetch(`${middlewareUrl}/cds/health`, {
-    headers: { ...CSRF_HEADER },
-  });
+  const res = await fetch(`${getMiddlewareUrl()}/cds/health`);
   if (!res.ok) throw new Error('Health check failed');
-  return res.json() as Promise<{ status: string; model_server: { url: string; ok: boolean }; kb: { url: string; ok: boolean } }>;
+  return res.json();
 }

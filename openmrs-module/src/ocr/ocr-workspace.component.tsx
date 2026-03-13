@@ -7,8 +7,8 @@ import {
   Tag,
   InlineLoading,
 } from '@carbon/react';
-import { Camera, Upload, TrashCan } from '@carbon/react/icons';
-import { usePatient, useFeatureFlag, showSnackbar } from '@openmrs/esm-framework';
+import { Camera, Upload, TrashCan, ZoomIn, ZoomOut } from '@carbon/react/icons';
+import { usePatient, showSnackbar } from '@openmrs/esm-framework';
 import styles from './ocr-workspace.scss';
 
 interface OcrWorkspaceProps {
@@ -24,9 +24,6 @@ interface CapturedImage {
   timestamp: Date;
 }
 
-/** Maximum allowed file size in MB (S-4) */
-const MAX_FILE_SIZE_MB = 20;
-
 const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
   patientUuid,
   closeWorkspace,
@@ -34,7 +31,6 @@ const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
 }) => {
   const { t } = useTranslation();
   const { patient, isLoading: isLoadingPatient } = usePatient(patientUuid);
-  const isOcrEnabled = useFeatureFlag('clinicdx-ocr');
 
   const [images, setImages] = useState<CapturedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<CapturedImage | null>(null);
@@ -75,9 +71,8 @@ const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
           videoRef.current.play();
         }
       }, 100);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      showSnackbar({ title: t('error', 'Error'), kind: 'error', subtitle: message });
+    } catch (err: any) {
+      showSnackbar({ title: t('error', 'Error'), kind: 'error', subtitle: err.message });
     }
   }, [t]);
 
@@ -111,19 +106,8 @@ const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
     if (!files?.length) return;
 
     Array.from(files).forEach((file) => {
-      // S-4: file size guard
-      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        showSnackbar({
-          title: t('error', 'Error'),
-          kind: 'error',
-          subtitle: t('fileTooLarge', 'File {{name}} exceeds {{max}}MB limit', { name: file.name, max: MAX_FILE_SIZE_MB }),
-        });
-        return;
-      }
-
       const reader = new FileReader();
       reader.onload = () => {
-        // C-7: show snackbar inside onload callback, after the file is actually ready
         const img: CapturedImage = {
           id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           dataUrl: reader.result as string,
@@ -132,12 +116,12 @@ const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
         };
         setImages((prev) => [img, ...prev]);
         setSelectedImage(img);
-        showSnackbar({ title: t('imageUploaded', 'Image Uploaded'), kind: 'success', subtitle: t('imageUploadedDetail', 'Lab result image ready for AI extraction') });
       };
       reader.readAsDataURL(file);
     });
 
     if (fileInputRef.current) fileInputRef.current.value = '';
+    showSnackbar({ title: t('imageUploaded', 'Image Uploaded'), kind: 'success', subtitle: t('imageUploadedDetail', 'Lab result image ready for AI extraction') });
   }, [t]);
 
   const deleteImage = useCallback((id: string) => {
@@ -149,18 +133,6 @@ const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
     return (
       <div className={styles.loadingContainer}>
         <InlineLoading description={t('loadingPatient', 'Loading patient data...')} />
-      </div>
-    );
-  }
-
-  // Q-3: Feature flag guard — show Under Development tile if flag is off
-  if (!isOcrEnabled) {
-    return (
-      <div className={styles.workspaceContainer}>
-        <Tile className={styles.underDevTile}>
-          <h4>{t('clinicDxOcr', 'ClinicDx OCR')}</h4>
-          <p>{t('comingSoon', 'This workspace is under development.')}</p>
-        </Tile>
       </div>
     );
   }
@@ -192,15 +164,7 @@ const OcrWorkspace: React.FC<OcrWorkspaceProps> = ({
 
         {isCameraOpen ? (
           <Tile className={styles.cameraContainer}>
-            {/* A-5: add title to video element for screen readers */}
-            <video
-              ref={videoRef}
-              className={styles.videoPreview}
-              autoPlay
-              playsInline
-              muted
-              title={t('cameraPreview', 'Camera Preview')}
-            />
+            <video ref={videoRef} className={styles.videoPreview} autoPlay playsInline muted />
             <canvas ref={canvasRef} style={{ display: 'none' }} />
             <div className={styles.cameraActions}>
               <Button kind="primary" onClick={capturePhoto}>

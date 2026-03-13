@@ -1,0 +1,58 @@
+# =============================================================================
+# ClinicDx V1 — Model Server Container (GPU, prebuilt binary)
+# =============================================================================
+# Uses the already-compiled llama-server binary and its shared libraries
+# from the host build at /var/www/unified_llama/llama.cpp/build/bin/.
+# This avoids a 30-minute CUDA recompile.
+#
+# Only clinicdx-v1-q8.gguf is loaded. There is NO Q4 model or fallback.
+# =============================================================================
+
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
+
+LABEL maintainer="ClinicDx" \
+      version="1.0.0" \
+      description="ClinicDx Model Server — llama-server GPU (Q8 only, prebuilt)"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        curl \
+        ca-certificates \
+        libgomp1 \
+        libssl3 \
+        libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir huggingface_hub[cli]
+
+# ── Copy prebuilt binary + all required shared libraries ─────────────────────
+COPY llama_bin/llama-server          /usr/local/bin/llama-server
+COPY llama_bin/libggml.so.0          /usr/local/lib/libggml.so.0
+COPY llama_bin/libggml-base.so.0     /usr/local/lib/libggml-base.so.0
+COPY llama_bin/libggml-cpu.so.0      /usr/local/lib/libggml-cpu.so.0
+COPY llama_bin/libggml-cuda.so.0     /usr/local/lib/libggml-cuda.so.0
+COPY llama_bin/libllama.so.0         /usr/local/lib/libllama.so.0
+COPY llama_bin/libmtmd.so.0          /usr/local/lib/libmtmd.so.0
+
+RUN chmod +x /usr/local/bin/llama-server && ldconfig
+
+COPY docker/model/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+VOLUME ["/gguf_data"]
+
+ENV MODEL_PORT=8180 \
+    N_GPU_LAYERS=999 \
+    MODEL_CTX=8192 \
+    MODEL_PARALLEL=4 \
+    MODEL_THREADS=8 \
+    GGUF_DIR=/gguf_data \
+    LOG_LEVEL=INFO
+
+EXPOSE 8180
+
+HEALTHCHECK --interval=20s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -sf http://localhost:8180/health || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]

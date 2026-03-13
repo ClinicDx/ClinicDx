@@ -2,15 +2,6 @@ import { openmrsFetch, restBaseUrl } from '@openmrs/esm-framework';
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type ConceptDatatype =
-  | 'Coded'
-  | 'Numeric'
-  | 'Text'
-  | 'Date'
-  | 'Datetime'
-  | 'Boolean'
-  | string;
-
 export interface ConceptMapping {
   conceptReferenceTerm: {
     code: string;
@@ -21,7 +12,7 @@ export interface ConceptMapping {
 export interface ObsConcept {
   uuid: string;
   display: string;
-  datatype: { display: ConceptDatatype };
+  datatype: { display: string };
   conceptClass: { display: string };
   mappings: ConceptMapping[];
 }
@@ -30,7 +21,7 @@ export interface Obs {
   uuid: string;
   display: string;
   concept: ObsConcept;
-  value: string | number | boolean | { display: string; uuid?: string } | null;
+  value: any;
   groupMembers: Obs[] | null;
 }
 
@@ -45,7 +36,7 @@ export interface Encounter {
 export interface PersonAttribute {
   attributeType: { display: string };
   display: string;
-  value: string | number | boolean | { display: string } | null;
+  value: any;
 }
 
 export interface PatientIdentifier {
@@ -93,7 +84,7 @@ export async function fetchPatient(patientUuid: string): Promise<PatientFull> {
   const resp = await openmrsFetch(
     `${restBaseUrl}/patient/${patientUuid}?v=${PATIENT_REP}`,
   );
-  return resp.data as PatientFull;
+  return resp.data;
 }
 
 export async function fetchEncounters(
@@ -103,6 +94,11 @@ export async function fetchEncounters(
   const resp = await openmrsFetch(
     `${restBaseUrl}/encounter?patient=${patientUuid}&v=${ENCOUNTER_REP}&limit=${limit}&order=asc`,
   );
-  // API already returns results in ascending order — no client-side sort needed (Q-6)
-  return (resp.data?.results ?? []) as Encounter[];
+  const results: Encounter[] = resp.data?.results ?? [];
+  results.sort(
+    (a, b) =>
+      new Date(a.encounterDatetime).getTime() -
+      new Date(b.encounterDatetime).getTime(),
+  );
+  return results;
 }

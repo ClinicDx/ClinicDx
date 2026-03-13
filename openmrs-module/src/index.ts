@@ -1,4 +1,4 @@
-import { getAsyncLifecycle, defineConfigSchema, Type, registerFeatureFlag } from '@openmrs/esm-framework';
+import { getAsyncLifecycle, defineConfigSchema } from '@openmrs/esm-framework';
 
 const moduleName = '@openmrs/esm-clinicdx-app';
 
@@ -9,14 +9,12 @@ const options = {
 
 export const configSchema = {
   middlewareUrl: {
-    _type: Type.String,
+    _type: 'String',
     _default: '/clinicdx-api',
-    _description: 'URL for the ClinicDx middleware API',
-  },
-  vitalsEncounterTypeUuid: {
-    _type: Type.String,
-    _default: '67a71486-1a54-468f-ac3e-7091a9a79584',
-    _description: 'UUID of the Vitals encounter type used when creating new encounters from Scribe',
+    _description:
+      'Base URL for the ClinicDx middleware API. ' +
+      'In Docker deployments this is /clinicdx-api (proxied by nginx). ' +
+      'For local development set to http://localhost:8080.',
   },
 };
 
@@ -24,8 +22,6 @@ export const importTranslation = require.context('../translations', false, /.jso
 
 export function startupApp() {
   defineConfigSchema(moduleName, configSchema);
-  registerFeatureFlag('clinicdx-ocr', 'ClinicDx OCR', 'Lab result OCR — under development');
-  registerFeatureFlag('clinicdx-imaging', 'ClinicDx Imaging', 'DICOM imaging — under development');
 }
 
 // ── CDS ────────────────────────────────────────────────────────────

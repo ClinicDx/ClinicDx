@@ -17,19 +17,6 @@
   height: 100%;
 }
 
-/* Screen-reader only live region */
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 .header {
   padding: spacing.$spacing-05;
   border-bottom: 1px solid colors.$gray-20;
@@ -66,10 +53,30 @@
 /* ── Patient Card ──────────────────────────────────────────────── */
 
 .patientCard {
+  flex-shrink: 0;
+
   h5 {
     @include type.type-style('heading-compact-01');
-    margin: 0 0 spacing.$spacing-03 0;
+    margin: 0;
     color: colors.$gray-80;
+  }
+}
+
+.patientCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: spacing.$spacing-03;
+}
+
+.rerunBtn {
+  min-height: unset !important;
+  padding-inline-start: spacing.$spacing-04 !important;
+  padding-inline-end: spacing.$spacing-07 !important;
+  color: colors.$white-0 !important;
+
+  svg {
+    fill: colors.$white-0 !important;
   }
 }
 
@@ -128,14 +135,6 @@
   margin-top: spacing.$spacing-03;
 }
 
-/* Streaming tag row — displaces inline style={{ marginBottom: '0.5rem' }} (R-5) */
-.tagRowStreaming {
-  display: flex;
-  gap: spacing.$spacing-02;
-  flex-wrap: wrap;
-  margin-bottom: spacing.$spacing-04;
-}
-
 /* ── Error Card ────────────────────────────────────────────────── */
 
 .errorCard {
@@ -158,6 +157,17 @@
   animation: fadeIn 0.25s ease;
 }
 
+// During streaming: suppress per-card entry animations so content updates
+// don't cause visible jumps. The container itself gets a gentle fade-in.
+.resultsStreaming {
+  animation: fadeIn 0.3s ease forwards;
+
+  .sectionCard {
+    animation: none;
+    animation-delay: 0s;
+  }
+}
+
 /* ── Metadata Footer ───────────────────────────────────────────── */
 
 .metaFooter {
@@ -165,7 +175,6 @@
   gap: spacing.$spacing-02;
   flex-wrap: wrap;
   justify-content: flex-end;
-  align-items: center;
   padding-top: spacing.$spacing-03;
   border-top: 1px solid colors.$gray-20;
 }
@@ -208,6 +217,9 @@
 
 .sectionBody {
   padding-left: spacing.$spacing-07;
+  // Hint to the browser that content will change — avoids full layout
+  // recalculation on each parsedSections update during streaming.
+  will-change: contents;
 }
 
 /* ── Markdown ──────────────────────────────────────────────────── */
@@ -239,12 +251,158 @@
 
 /* ── KB Evidence ───────────────────────────────────────────────── */
 
+.kbList {
+  display: flex;
+  flex-direction: column;
+  gap: spacing.$spacing-03;
+}
+
+.kbRow {
+  display: flex;
+  align-items: center;
+  gap: spacing.$spacing-03;
+  padding: spacing.$spacing-03;
+  background: colors.$gray-10;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.kbBadge {
+  @include type.type-style('label-01');
+  font-weight: 600;
+  color: colors.$white-0;
+  background: colors.$blue-60;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
 .kbQuery {
   @include type.type-style('body-compact-01');
   font-style: italic;
   color: colors.$gray-80;
   flex: 1;
   min-width: 0;
+}
+
+/* ── Think Stream Panel ─────────────────────────────────────────── */
+
+// Outer wrapper — handles the height collapse so the Tile below can
+// transition smoothly without affecting neighbouring layout.
+.thinkWrap {
+  // overflow: hidden only during collapse (set via .thinkWrapCollapsing)
+  transition: height 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 1;
+}
+
+.thinkWrapCollapsing {
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thinkStream {
+  border-left: 4px solid colors.$purple-40;
+  background: linear-gradient(135deg, colors.$purple-10 0%, colors.$blue-10 100%);
+  animation: fadeIn 0.3s ease forwards;
+  // No opacity here — wrapper controls that during collapse
+}
+
+.thinkHeader {
+  display: flex;
+  align-items: center;
+  gap: spacing.$spacing-02;
+  margin-bottom: spacing.$spacing-03;
+  color: colors.$purple-70;
+  @include type.type-style('label-01');
+  text-transform: uppercase;
+  letter-spacing: 0.32px;
+
+  svg { fill: colors.$purple-60; flex-shrink: 0; }
+}
+
+.thinkLabel {
+  // Subtle pulse to show live activity
+  animation: thinkPulse 2s ease-in-out infinite;
+}
+
+.thinkPre {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: colors.$gray-70;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: spacing.$spacing-03;
+  background: rgba(colors.$white-0, 0.7);
+  border-radius: 4px;
+  position: relative;
+}
+
+// Blinking cursor appended after the last token
+.thinkCursor {
+  display: inline-block;
+  width: 6px;
+  height: 0.85em;
+  background: colors.$purple-50;
+  border-radius: 1px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+/* ── Think Blocks ──────────────────────────────────────────────── */
+
+.thinkCard {
+  margin-bottom: spacing.$spacing-04;
+  border: 1px solid colors.$purple-20;
+  border-radius: 4px;
+  padding: spacing.$spacing-03;
+  background: colors.$purple-10;
+}
+
+/* ── Raw Output ────────────────────────────────────────────────── */
+
+.rawControls {
+  display: flex;
+  align-items: center;
+  gap: spacing.$spacing-03;
+  margin-bottom: spacing.$spacing-03;
+}
+
+.rawPre {
+  @include type.type-style('code-01');
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: spacing.$spacing-04;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: colors.$green-30;
+  background: colors.$gray-90;
+  border-radius: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ── Accordion ─────────────────────────────────────────────────── */
+
+.accordLbl {
+  display: inline-flex;
+  align-items: center;
+  gap: spacing.$spacing-03;
+
+  svg { fill: colors.$gray-60; }
+}
+
+/* ── Streaming Area ───────────────────────────────────────────── */
+
+.streamingArea {
+  display: flex;
+  flex-direction: column;
+  gap: spacing.$spacing-04;
 }
 
 .kbFeed {
@@ -261,15 +419,115 @@
   }
 }
 
+/* Clickable evidence card — reset <button> defaults */
 .kbEntry {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-top: 1px solid colors.$gray-20;
+  padding: spacing.$spacing-03 spacing.$spacing-02;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.1s ease;
+
+  &:first-of-type {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  &:hover {
+    background: colors.$teal-10;
+  }
+
+  &:focus-visible {
+    outline: 2px solid colors.$teal-60;
+    outline-offset: -2px;
+  }
+}
+
+.kbEntryHeader {
   display: flex;
   align-items: center;
   gap: spacing.$spacing-03;
-  padding: spacing.$spacing-02 0;
   flex-wrap: wrap;
+}
 
-  & + & {
-    border-top: 1px solid colors.$gray-20;
+.kbRank {
+  @include type.type-style('label-01');
+  font-weight: 600;
+  color: colors.$teal-60;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.kbTitle {
+  @include type.type-style('body-compact-01');
+  font-style: italic;
+  color: colors.$gray-80;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kbScore {
+  @include type.type-style('label-01');
+  color: colors.$gray-50;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.kbShowMore {
+  margin-top: spacing.$spacing-03;
+  padding-left: 0;
+}
+
+/* ── Evidence Modal ────────────────────────────────────────────── */
+
+.kbModalMeta {
+  display: flex;
+  align-items: center;
+  gap: spacing.$spacing-03;
+  margin-bottom: spacing.$spacing-05;
+  flex-wrap: wrap;
+}
+
+.kbModalScore {
+  @include type.type-style('label-01');
+  color: colors.$gray-60;
+}
+
+.kbModalPath {
+  @include type.type-style('label-01');
+  color: colors.$gray-50;
+  margin-bottom: spacing.$spacing-04;
+  padding: spacing.$spacing-02 spacing.$spacing-03;
+  background: colors.$gray-10;
+  border-left: 3px solid colors.$blue-40;
+  border-radius: 2px;
+  font-style: italic;
+  word-break: break-word;
+}
+
+.kbModalContent {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: spacing.$spacing-03;
+}
+
+.thinkingCard {
+  display: flex;
+  align-items: center;
+  gap: spacing.$spacing-03;
+  border-left: 4px solid colors.$purple-50;
+  background: colors.$purple-10;
+
+  span {
+    @include type.type-style('body-compact-01');
+    color: colors.$purple-70;
   }
 }
 
@@ -283,4 +541,14 @@
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes thinkPulse {
+  0%, 100% { opacity: 0.85; }
+  50%       { opacity: 1; }
 }

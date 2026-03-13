@@ -8,7 +8,7 @@ import {
   InlineLoading,
 } from '@carbon/react';
 import { ImageSearch, Upload, TrashCan, DocumentBlank } from '@carbon/react/icons';
-import { usePatient, useFeatureFlag, showSnackbar } from '@openmrs/esm-framework';
+import { usePatient, showSnackbar } from '@openmrs/esm-framework';
 import styles from './imaging-workspace.scss';
 
 interface ImagingWorkspaceProps {
@@ -25,11 +25,6 @@ interface DicomFile {
   timestamp: Date;
 }
 
-/** Maximum DICOM file size in MB (S-4) */
-const MAX_FILE_SIZE_MB = 500;
-/** Maximum number of files at once (S-4) */
-const MAX_FILE_COUNT = 20;
-
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -43,7 +38,6 @@ const ImagingWorkspace: React.FC<ImagingWorkspaceProps> = ({
 }) => {
   const { t } = useTranslation();
   const { patient, isLoading: isLoadingPatient } = usePatient(patientUuid);
-  const isImagingEnabled = useFeatureFlag('clinicdx-imaging');
 
   const [dicomFiles, setDicomFiles] = useState<DicomFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<DicomFile | null>(null);
@@ -55,49 +49,23 @@ const ImagingWorkspace: React.FC<ImagingWorkspaceProps> = ({
   }, [promptBeforeClosing, dicomFiles.length]);
 
   const addFiles = useCallback((files: FileList | File[]) => {
-    const fileArray = Array.from(files);
+    const newFiles: DicomFile[] = Array.from(files).map((file) => ({
+      id: `dcm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      file,
+      fileName: file.name,
+      fileSize: formatFileSize(file.size),
+      timestamp: new Date(),
+    }));
 
-    // S-4: file count limit
-    if (dicomFiles.length + fileArray.length > MAX_FILE_COUNT) {
-      showSnackbar({
-        title: t('error', 'Error'),
-        kind: 'error',
-        subtitle: t('tooManyFiles', 'Maximum {{max}} files allowed', { max: MAX_FILE_COUNT }),
-      });
-      return;
-    }
-
-    const validFiles: DicomFile[] = [];
-    for (const file of fileArray) {
-      // S-4: file size limit
-      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        showSnackbar({
-          title: t('error', 'Error'),
-          kind: 'error',
-          subtitle: t('fileTooLarge', 'File {{name}} exceeds {{max}}MB limit', { name: file.name, max: MAX_FILE_SIZE_MB }),
-        });
-        continue;
-      }
-      validFiles.push({
-        id: `dcm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        file,
-        fileName: file.name,
-        fileSize: formatFileSize(file.size),
-        timestamp: new Date(),
-      });
-    }
-
-    if (validFiles.length === 0) return;
-
-    setDicomFiles((prev) => [...validFiles, ...prev]);
-    if (validFiles.length > 0) setSelectedFile(validFiles[0]);
+    setDicomFiles((prev) => [...newFiles, ...prev]);
+    if (newFiles.length > 0) setSelectedFile(newFiles[0]);
 
     showSnackbar({
       title: t('filesAdded', 'Files Added'),
       kind: 'success',
-      subtitle: `${validFiles.length} DICOM file${validFiles.length > 1 ? 's' : ''} ready for analysis`,
+      subtitle: `${newFiles.length} DICOM file${newFiles.length > 1 ? 's' : ''} ready for analysis`,
     });
-  }, [t, dicomFiles.length]);
+  }, [t]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.length) addFiles(e.target.files);
@@ -132,18 +100,6 @@ const ImagingWorkspace: React.FC<ImagingWorkspaceProps> = ({
     );
   }
 
-  // Q-3: Feature flag guard
-  if (!isImagingEnabled) {
-    return (
-      <div className={styles.workspaceContainer}>
-        <Tile className={styles.underDevTile}>
-          <h4>{t('clinicDxImaging', 'ClinicDx Imaging')}</h4>
-          <p>{t('comingSoon', 'This workspace is under development.')}</p>
-        </Tile>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.workspaceContainer}>
       <div className={styles.header}>
@@ -169,22 +125,12 @@ const ImagingWorkspace: React.FC<ImagingWorkspaceProps> = ({
           )}
         </Tile>
 
-        {/* A-4: drop zone keyboard accessibility */}
         <div
           className={`${styles.dropZone} ${isDragOver ? styles.dragOver : ''}`}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onClick={() => fileInputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          aria-label={t('uploadDicom', 'Upload DICOM Files')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              fileInputRef.current?.click();
-            }
-          }}
         >
           <Upload size={48} className={styles.dropIcon} />
           <p className={styles.dropTitle}>{t('uploadDicom', 'Upload DICOM Files')}</p>

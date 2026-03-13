@@ -89,6 +89,94 @@ _METADATA_LINE_PREFIXES = (
     "source: lex", "source: sem", "source: rrf",
 )
 
+# ── Inline metadata parsing ───────────────────────────────────────────────
+# memvid_sdk v2 does not populate hit["metadata"]; instead it appends all
+# frame-level metadata fields as a single space-separated string at the end
+# of the snippet text (no newlines).  These two regexes locate the boundary
+# between real chunk content and that metadata blob, and then parse it into
+# a plain dict so the rest of the pipeline can read typed values.
+_INLINE_META_SPLIT_RE = re.compile(
+    r' (?:title|uri|track|tags|labels|chunk_id|content_hash|content_type'
+    r'|doc_type|docling_provenance|extractous_metadata|headings|is_current'
+    r'|pdf_file|retrieval_priority|source_url|token_count|page_numbers): '
+)
+
+# Ordered list of all known metadata field names, used to build a boundary
+# pattern that delimits each field value correctly even when values contain
+# spaces (e.g. headings JSON arrays, docling_provenance JSON arrays).
+_INLINE_META_FIELDS = [
+    "title", "uri", "track", "tags", "labels", "chunk_id", "content_hash",
+    "content_type", "doc_type", "docling_provenance", "extractous_metadata",
+    "headings", "is_current", "pdf_file", "retrieval_priority", "source_url",
+    "token_count", "page_numbers",
+]
+# Pre-compiled boundary pattern: matches " <known_field>: " to find where the
+# next field starts so the current field's value is extracted in full.
+_INLINE_META_BOUNDARY_RE = re.compile(
+    r' (' + '|'.join(re.escape(f) for f in _INLINE_META_FIELDS) + r'): '
+)
+
+
+def _parse_inline_meta(raw_snippet: str) -> tuple:
+    """Separate real chunk content from the SDK-appended inline metadata suffix.
+
+    The SDK appends v2 metadata as a single space-separated string at the tail
+    of the snippet (no newlines between fields).  This parser locates the start
+    of the metadata block, then extracts each field's value by scanning forward
+    to the next known-field boundary — preserving multi-word strings and JSON
+    arrays (e.g. headings) in full.
+
+    Returns (clean_content: str, meta: dict).
+    If no metadata suffix is found, returns (raw_snippet, {}).
+    """
+    m = _INLINE_META_SPLIT_RE.search(raw_snippet)
+    if not m:
+        return raw_snippet, {}
+    content_part = raw_snippet[:m.start()].strip()
+    meta_str = raw_snippet[m.start():].strip()
+    meta: dict = {}
+
+    pos = 0
+    while pos < len(meta_str):
+        km = re.match(r'(\w+): ', meta_str[pos:])
+        if not km:
+            break
+        key = km.group(1)
+        val_start = pos + km.end()
+        nm = _INLINE_META_BOUNDARY_RE.search(meta_str, val_start)
+        val_end = nm.start() if nm else len(meta_str)
+        meta[key] = meta_str[val_start:val_end].strip()
+        pos = val_end + 1 if nm else len(meta_str)
+
+    return content_part, meta
+
+
+def _parse_tags_meta(hit: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract content_type, pdf_file, and superseded status from SDK hit tags/track.
+
+    Used as a fallback when inline snippet metadata is absent (older index frames
+    that were not built with the v2 inline-metadata schema).  The tags list always
+    contains entries of the form "type:<content_type>", "pdf:<filename>", and
+    the literal string "superseded" when the chunk is superseded.
+    The track field contains the PDF filename as a plain string.
+    """
+    out: Dict[str, Any] = {}
+    tags: List[str] = hit.get("tags") or []
+    for tag in tags:
+        if tag.startswith("type:"):
+            out["content_type"] = tag[5:]
+        elif tag.startswith("pdf:"):
+            out["pdf_file"] = tag[4:]
+    if not out.get("pdf_file"):
+        track = hit.get("track", "")
+        if track:
+            out["pdf_file"] = track
+    if "superseded" in tags:
+        out["retrieval_priority"] = "0.0"
+        out["is_current"] = "False"
+    return out
+
+
 # ── Corruption filter ─────────────────────────────────────────────────────
 # Hard-drop hits whose content contains known extraction artifacts.
 _CORRUPTION_RE = re.compile(
@@ -672,12 +760,18 @@ def _normalize_hit(
     stages and callers have full access without re-reading the index.
     """
     score = hit.get("score", 0)
-    raw_content = hit.get("snippet", hit.get("frame", ""))
-    if not raw_content:
+    raw_snippet = hit.get("snippet", hit.get("frame", ""))
+    if not raw_snippet:
         return None
 
-    # Strip metadata lines that bleed into snippet text
-    lines = str(raw_content).split("\n")
+    # Split SDK-appended inline metadata from real chunk content.
+    # memvid_sdk v2 does not populate hit["metadata"]; all v2 fields are
+    # appended as a space-separated string at the end of the snippet.
+    content, meta = _parse_inline_meta(str(raw_snippet))
+
+    # Belt-and-suspenders: also strip any newline-separated metadata lines
+    # (present in some older index builds or fallback paths).
+    lines = content.split("\n")
     clean_lines = [ln for ln in lines if not any(
         ln.strip().startswith(p) for p in _METADATA_LINE_PREFIXES
     )]
@@ -692,7 +786,14 @@ def _normalize_hit(
     if "#page-" in uri:
         uri = uri.split("#")[0]
 
-    meta = hit.get("metadata", {}) or {}
+    # Prefer structured metadata dict from SDK if ever populated in a future
+    # SDK version; otherwise fall back to the inline-parsed dict from above.
+    meta = hit.get("metadata") or meta
+
+    # For chunks that have no inline metadata suffix (older index frames),
+    # fill missing fields from the SDK's tags/track fields.
+    if not meta.get("pdf_file"):
+        meta = {**_parse_tags_meta(hit), **meta}
 
     # ── v2 metadata fields ────────────────────────────────────────────────
     content_type = meta.get("content_type", "background")
@@ -1119,13 +1220,21 @@ def _intent_rerank(
 def _promote_aligned_top_hit(
     hits: List[Dict[str, Any]],
     query: str,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], bool]:
     """Always-on guardrail: if top hit is off-condition and a strong aligned
     alternative exists (score ≥ 70% of top), reorder the list.
     No score mutation — positional swap only.
+
+    Returns (hits, swapped) where swapped=True if a positional swap was made.
+
+    Swap guard: if the current top hit is already a promotable actionable type
+    (recommendation or implementation), it is never displaced — even if it fails
+    the condition-alignment check.  This prevents a lower-scoring rescued
+    background chunk from being elevated above a correctly-typed recommendation.
+    Candidates for promotion must also be promotable actionable types.
     """
     if len(hits) < 2:
-        return hits
+        return hits, False
 
     condition: Optional[str] = None
     cond_c_re: Optional[re.Pattern] = None
@@ -1145,28 +1254,32 @@ def _promote_aligned_top_hit(
         active_checks = [content_re for q_re, content_re in _CONDITION_COHERENCE
                          if q_re.search(query)]
         if not active_checks:
-            return hits
+            return hits, False
 
         def _aligned(h: Dict[str, Any]) -> bool:
             combined = h.get("title", "") + " " + h.get("content", "")[:1200]
             return any(cr.search(combined) for cr in active_checks)
 
+    # Never displace a recommendation/implementation chunk — it is already the
+    # best actionable hit the pipeline found; a background/rescued chunk should
+    # not be promoted above it regardless of condition-alignment.
+    if _is_promotable_action_hit(hits[0]):
+        return hits, False
+
     action_query = _is_action_query(query)
-    if _aligned(hits[0]) and (not action_query or _is_promotable_action_hit(hits[0])):
-        return hits
+    if _aligned(hits[0]) and not action_query:
+        return hits, False
 
     for idx, cand in enumerate(hits[1:], start=1):
         if not _aligned(cand):
             continue
-        if action_query:
-            if not _is_promotable_action_hit(cand):
-                continue
-        elif not _is_actionable_hit(cand):
+        # Only promote recommendation/implementation chunks — never rescued background.
+        if not _is_promotable_action_hit(cand):
             continue
         if cand.get("score", 0.0) < hits[0].get("score", 0.0) * 0.70:
             continue
-        return [cand] + hits[:idx] + hits[idx + 1:]
-    return hits
+        return [cand] + hits[:idx] + hits[idx + 1:], True
+    return hits, False
 
 
 def _safe_top1_guardrail(
@@ -1396,8 +1509,8 @@ class KBRetriever:
         # ── Intent-constrained reranking ──────────────────────────────────
         hits = _intent_rerank(hits, query)
 
-        # ── Always-on alignment guardrail (55% threshold) ─────────────────
-        hits = _promote_aligned_top_hit(hits, query)
+        # ── Always-on alignment guardrail (positional swap only) ─────────
+        hits, aligned_swapped = _promote_aligned_top_hit(hits, query)
 
         # ── Optional strict guardrail (70% threshold, actionable types) ───
         top1_swapped      = False
@@ -1454,8 +1567,10 @@ class KBRetriever:
             "latency_ms":       latency_ms,
             "errors":           errors,
             "quality_flags":    quality_flags,
-            "top1_swapped":     top1_swapped,
-            "top1_swap_reason": top1_swap_reason,
+            "top1_swapped":     top1_swapped or aligned_swapped,
+            "top1_swap_reason": top1_swap_reason or (
+                "always_on_guardrail_aligned_swap" if aligned_swapped else None
+            ),
         }
 
     def stats(self) -> Dict[str, Any]:

@@ -9,7 +9,7 @@ import {
   Dropdown,
 } from '@carbon/react';
 import { Microphone, MicrophoneFilled, Checkmark, TrashCan, Add } from '@carbon/react/icons';
-import { usePatient, useVisit, useConfig, openmrsFetch, restBaseUrl, showSnackbar } from '@openmrs/esm-framework';
+import { usePatient, useVisit, openmrsFetch, restBaseUrl, showSnackbar, useConfig } from '@openmrs/esm-framework';
 import styles from './scribe-workspace.scss';
 
 interface ScribeWorkspaceProps {
@@ -32,8 +32,14 @@ interface ExtractedItem {
   human_readable: string;
   checked: boolean;
   fhir_type?: string;
-  fhir_payload?: Record<string, unknown>;
+  fhir_payload?: Record<string, any>;
 }
+
+// middlewareUrl is configured in the OpenMRS config schema (src/index.ts).
+// Default value (/clinicdx-api on the same origin) aligns with the nginx proxy path.
+// Do NOT use window.__clinicDxMiddlewareUrl — that global is not set in production.
+
+const VITALS_ENCOUNTER_TYPE = '67a71486-1a54-468f-ac3e-7091a9a79584';
 
 const ENCOUNTER_REP =
   'custom:(uuid,encounterDatetime,encounterType:(uuid,display),visit:(uuid))';
@@ -44,10 +50,7 @@ const SKIP_PREFIXES = [
   'audio', 'manifest', 'note', 'output', 'result',
 ];
 
-/** Max recording duration before auto-stop (5 minutes) */
-const MAX_RECORDING_MS = 300_000;
-
-export function parseItems(raw: string): ExtractedItem[] {
+function parseItems(raw: string): ExtractedItem[] {
   let text = raw.replace(/<think>[\s\S]*?<\/think>/g, '');
   text = text.replace(/<think>[\s\S]*/g, '');
 
@@ -73,13 +76,9 @@ export function parseItems(raw: string): ExtractedItem[] {
   return items;
 }
 
-export function handleExtractedData(data: {
-  items?: Array<{ label: string; value: string; human_readable?: string; fhir_type?: string; fhir_payload?: Record<string, unknown> }>;
-  raw_model_output?: string;
-  raw_output?: string;
-}): ExtractedItem[] {
+function handleExtractedData(data: any): ExtractedItem[] {
   if (data.items && Array.isArray(data.items)) {
-    return data.items.map((it, i) => ({
+    return data.items.map((it: any, i: number) => ({
       id: `item-${i}`,
       label: it.label,
       value: it.value,
@@ -110,9 +109,10 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
   promptBeforeClosing,
 }) => {
   const { t } = useTranslation();
-  const config = useConfig<{ middlewareUrl: string; vitalsEncounterTypeUuid: string }>();
   const { patient, isLoading: isLoadingPatient } = usePatient(patientUuid);
   const { activeVisit } = useVisit(patientUuid);
+  const config = useConfig<{ middlewareUrl?: string }>();
+  const middlewareUrl = (config?.middlewareUrl || `${window.location.origin}/clinicdx-api`).replace(/\/$/, '');
 
   const [phase, setPhase] = useState<'idle' | 'recording' | 'processing' | 'review' | 'confirmed'>('idle');
   const [recordingTime, setRecordingTime] = useState(0);
@@ -123,7 +123,7 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
   const [encounters, setEncounters] = useState<EncounterOption[]>([]);
   const [selectedEncounter, setSelectedEncounter] = useState<EncounterOption | null>(null);
   const [manifestString, setManifestString] = useState('');
-  const [lookup, setLookup] = useState<Record<string, unknown>>({});
+  const [lookup, setLookup] = useState<Record<string, any>>({});
   const [isLoadingEncounters, setIsLoadingEncounters] = useState(false);
   const [isLoadingManifest, setIsLoadingManifest] = useState(false);
   const [isCreatingEncounter, setIsCreatingEncounter] = useState(false);
@@ -132,7 +132,6 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
-  const stopRecordingRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     promptBeforeClosing(() => phase === 'review');
@@ -145,15 +144,6 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
     };
   }, []);
 
-  // S-4: auto-stop recording after MAX_RECORDING_MS — via effect to avoid circular dep
-  useEffect(() => {
-    if (phase !== 'recording') return;
-    const timer = window.setTimeout(() => {
-      stopRecordingRef.current?.();
-    }, MAX_RECORDING_MS);
-    return () => clearTimeout(timer);
-  }, [phase]);
-
   // Fetch encounters for the patient on mount
   useEffect(() => {
     if (!patientUuid) return;
@@ -164,27 +154,23 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
       `${restBaseUrl}/encounter?patient=${patientUuid}&v=${ENCOUNTER_REP}&limit=30&order=desc`,
     ).then((resp) => {
       if (cancelled) return;
-      const results = (resp.data?.results ?? []) as Array<{
-        uuid: string;
-        encounterType?: { display?: string };
-        encounterDatetime: string;
-      }>;
-      const opts: EncounterOption[] = results.map((enc) => ({
+      const results = resp.data?.results ?? [];
+      const opts: EncounterOption[] = results.map((enc: any) => ({
         uuid: enc.uuid,
-        display: `${enc.encounterType?.display ?? t('encounter', 'Encounter')} — ${formatEncounterDate(enc.encounterDatetime)}`,
+        display: `${enc.encounterType?.display ?? 'Encounter'} — ${formatEncounterDate(enc.encounterDatetime)}`,
         encounterType: enc.encounterType?.display ?? '',
         datetime: enc.encounterDatetime,
       }));
       setEncounters(opts);
       if (opts.length > 0) setSelectedEncounter(opts[0]);
-    }).catch((err: Error) => {
+    }).catch((err) => {
       if (!cancelled) setErrorMsg(`Failed to load encounters: ${err.message}`);
     }).finally(() => {
       if (!cancelled) setIsLoadingEncounters(false);
     });
 
     return () => { cancelled = true; };
-  }, [patientUuid, t]);
+  }, [patientUuid]);
 
   // Fetch manifest when selected encounter changes
   useEffect(() => {
@@ -198,13 +184,12 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
     const timeout = setTimeout(() => controller.abort(), 15000);
     setIsLoadingManifest(true);
 
-    fetch(`${config.middlewareUrl}/scribe/manifest?encounter_uuid=${selectedEncounter.uuid}`, {
+    fetch(`${middlewareUrl}/scribe/manifest?encounter_uuid=${selectedEncounter.uuid}`, {
       signal: controller.signal,
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
     })
       .then((r) => {
         if (!r.ok) throw new Error(`Manifest error (${r.status})`);
-        return r.json() as Promise<{ manifest_string?: string; lookup?: Record<string, unknown> }>;
+        return r.json();
       })
       .then((data) => {
         if (cancelled) return;
@@ -223,11 +208,11 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
       });
 
     return () => { cancelled = true; controller.abort(); clearTimeout(timeout); };
-  }, [selectedEncounter, config.middlewareUrl]);
+  }, [selectedEncounter]);
 
   const handleNewEncounter = useCallback(async () => {
     if (!activeVisit) {
-      setErrorMsg(t('noActiveVisit', 'No active visit. Start a visit for this patient first.'));
+      setErrorMsg('No active visit. Start a visit for this patient first.');
       return;
     }
     setIsCreatingEncounter(true);
@@ -238,32 +223,26 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: {
           patient: patientUuid,
-          // R-1: use config instead of hardcoded UUID
-          encounterType: config.vitalsEncounterTypeUuid,
+          encounterType: VITALS_ENCOUNTER_TYPE,
           visit: activeVisit.uuid,
         },
       });
-      const enc = resp.data as {
-        uuid: string;
-        encounterType?: { display?: string };
-        encounterDatetime: string;
-      };
+      const enc = resp.data;
       const opt: EncounterOption = {
         uuid: enc.uuid,
-        display: `${enc.encounterType?.display ?? t('vitals', 'Vitals')} — ${formatEncounterDate(enc.encounterDatetime)}`,
+        display: `${enc.encounterType?.display ?? 'Vitals'} — ${formatEncounterDate(enc.encounterDatetime)}`,
         encounterType: enc.encounterType?.display ?? 'Vitals',
         datetime: enc.encounterDatetime,
       };
       setEncounters((prev) => [opt, ...prev]);
       setSelectedEncounter(opt);
-      showSnackbar({ title: t('encounterCreated', 'Encounter Created'), kind: 'success', subtitle: opt.display });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setErrorMsg(`Failed to create encounter: ${message}`);
+      showSnackbar({ title: 'Encounter Created', kind: 'success', subtitle: opt.display });
+    } catch (err: any) {
+      setErrorMsg(`Failed to create encounter: ${err.message}`);
     } finally {
       setIsCreatingEncounter(false);
     }
-  }, [patientUuid, activeVisit, config.vitalsEncounterTypeUuid, t]);
+  }, [patientUuid, activeVisit]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -282,11 +261,8 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onerror = () => {
-        setErrorMsg(t('recordingError', 'Recording error. Check microphone permissions.'));
+        setErrorMsg('Recording error. Check microphone permissions.');
       };
-
-      // C-1: assign onstop BEFORE calling start/stop to avoid race condition
-      recorder.onstop = () => { /* handled in stopRecording promise */ };
 
       recorder.start(250);
       mediaRecorderRef.current = recorder;
@@ -298,15 +274,14 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
       timerRef.current = window.setInterval(() => {
         setRecordingTime((Date.now() - startTimeRef.current) / 1000);
       }, 100);
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'NotAllowedError') {
-        setErrorMsg(t('micDenied', 'Microphone permission denied. Allow microphone access in browser settings.'));
+    } catch (e: any) {
+      if (e.name === 'NotAllowedError') {
+        setErrorMsg('Microphone permission denied. Allow microphone access in browser settings.');
       } else {
-        const message = e instanceof Error ? e.message : 'Unknown error';
-        setErrorMsg(t('micError', 'Could not start recording: {{message}}', { message }));
+        setErrorMsg(`Could not start recording: ${e.message}`);
       }
     }
-  }, [t]);
+  }, []);
 
   const stopRecording = useCallback(async () => {
     if (phase !== 'recording' || !mediaRecorderRef.current) return;
@@ -314,97 +289,67 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setRecordingTime(0);
 
-    // C-4: guard — selectedEncounter required
-    if (!selectedEncounter) {
-      setErrorMsg(t('selectEncounterFirst', 'Select an encounter first'));
-      setPhase('idle');
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-      return;
-    }
-
     const audioBlob = await new Promise<Blob>((resolve) => {
-      // C-1: assign onstop BEFORE stop() to avoid race condition
       mediaRecorderRef.current!.onstop = () => {
         resolve(new Blob(audioChunksRef.current, { type: 'audio/webm' }));
       };
       mediaRecorderRef.current!.stop();
-      mediaRecorderRef.current!.stream.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current!.stream.getTracks().forEach((t) => t.stop());
     });
 
     if (audioBlob.size < 1000) {
       setPhase('idle');
-      setErrorMsg(t('recordingTooShort', 'Recording too short. Speak for at least a second.'));
+      setErrorMsg('Recording too short. Speak for at least a second.');
       return;
     }
 
-    setTranscription(t('processingAudioHint', '[audio recorded — processing directly...]'));
+    setTranscription('[audio recorded — processing directly...]');
     setPhase('processing');
 
     try {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
-      formData.append('encounter_uuid', selectedEncounter.uuid);
+      formData.append('encounter_uuid', selectedEncounter?.uuid ?? 'current');
       formData.append('patient_uuid', patientUuid);
       formData.append('manifest_string', manifestString);
       formData.append('lookup', JSON.stringify(lookup));
 
-      const res = await fetch(`${config.middlewareUrl}/scribe/process_audio`, {
+      const res = await fetch(`${middlewareUrl}/scribe/process_audio`, {
         method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
         body: formData,
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { detail?: string };
+        const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Server error (${res.status})`);
       }
 
-      const data = await res.json() as {
-        raw_model_output?: string;
-        raw_output?: string;
-        transcription?: string;
-        items?: Array<{ label: string; value: string; human_readable?: string; fhir_type?: string; fhir_payload?: Record<string, unknown> }>;
-      };
+      const data = await res.json();
       setRawOutput(data.raw_model_output || data.raw_output || '');
-      setTranscription(data.transcription || t('directAudio', '[direct audio — no transcript]'));
+      setTranscription(data.transcription || '[direct audio — no transcript]');
       setItems(handleExtractedData(data));
       setPhase('review');
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('processingFailed', 'Processing failed');
-      setErrorMsg(message);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Processing failed');
       setPhase('idle');
     }
-  }, [phase, patientUuid, selectedEncounter, manifestString, lookup, config.middlewareUrl, t]);
-
-  // Keep stopRecordingRef in sync with the latest stopRecording (for max-duration effect)
-  useEffect(() => {
-    stopRecordingRef.current = stopRecording;
-  }, [stopRecording]);
+  }, [phase, patientUuid, selectedEncounter, manifestString, lookup]);
 
   const toggleItem = useCallback((id: string) => {
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, checked: !it.checked } : it));
   }, []);
 
   const handleConfirm = useCallback(async () => {
-    // C-4: programmatic guard
-    if (!selectedEncounter) {
-      setErrorMsg(t('selectEncounterFirst', 'Select an encounter first'));
-      return;
-    }
     const checked = items.filter((it) => it.checked);
     if (!checked.length) return;
 
     setPhase('processing');
     try {
-      const res = await fetch(`${config.middlewareUrl}/scribe/confirm`, {
+      const res = await fetch(`${middlewareUrl}/scribe/confirm`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          encounter_uuid: selectedEncounter.uuid,
+          encounter_uuid: selectedEncounter?.uuid ?? 'current',
           patient_uuid: patientUuid,
           items: checked.map((it) => ({
             id: it.id,
@@ -416,22 +361,21 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { detail?: string };
+        const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `Confirm failed (${res.status})`);
       }
-      const result = await res.json() as { posted: number; failed: number };
+      const result = await res.json();
       setPhase('confirmed');
       showSnackbar({
-        title: t('observationsSaved', 'Observations Saved to OpenMRS'),
+        title: 'Observations Saved to OpenMRS',
         kind: 'success',
         subtitle: `${result.posted} posted, ${result.failed} failed`,
       });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('confirmFailed', 'Confirm failed');
-      setErrorMsg(message);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Confirm failed');
       setPhase('review');
     }
-  }, [items, selectedEncounter, patientUuid, config.middlewareUrl, t]);
+  }, [items, selectedEncounter, patientUuid]);
 
   const handleReset = useCallback(() => {
     setPhase('idle');
@@ -460,14 +404,6 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         <p className={styles.headerSub}>{t('scribeSubtitle', 'Speak clinical phrases — AI extracts structured observations for OpenMRS')}</p>
       </div>
 
-      {/* A-2: screen reader live region */}
-      <div role="status" aria-live="polite" className={styles.srOnly}>
-        {phase === 'recording' && t('recordingActive', 'Recording active')}
-        {phase === 'processing' && t('processingAudio', 'Processing audio...')}
-        {phase === 'review' && t('reviewReady', 'Observations ready for review')}
-        {phase === 'confirmed' && t('observationsConfirmed', 'Observations Confirmed')}
-      </div>
-
       <div className={styles.body}>
         {/* Patient */}
         <Tile className={styles.patientCard}>
@@ -485,12 +421,12 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         <Tile className={styles.encounterCard}>
           <div className={styles.encounterRow}>
             {isLoadingEncounters ? (
-              <InlineLoading description={t('loadingEncounters', 'Loading encounters...')} />
+              <InlineLoading description="Loading encounters..." />
             ) : (
               <Dropdown
                 id="encounter-select"
-                titleText={t('encounter', 'Encounter')}
-                label={encounters.length ? t('selectEncounter', 'Select an encounter') : t('noEncountersFound', 'No encounters found')}
+                titleText="Encounter"
+                label={encounters.length ? 'Select an encounter' : 'No encounters found'}
                 items={encounters}
                 itemToString={(item: EncounterOption | null) => item?.display ?? ''}
                 selectedItem={selectedEncounter}
@@ -509,13 +445,13 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
               disabled={isCreatingEncounter || !activeVisit}
               className={styles.encounterAddBtn}
               hasIconOnly
-              iconDescription={t('newEncounter', 'New Encounter')}
+              iconDescription="New Encounter"
               tooltipPosition="left"
             />
           </div>
-          {isLoadingManifest && <InlineLoading description={t('preparingManifest', 'Preparing...')} className={styles.manifestLoading} />}
+          {isLoadingManifest && <InlineLoading description="Preparing..." className={styles.manifestLoading} />}
           {!activeVisit && encounters.length === 0 && (
-            <p className={styles.encounterHint}>{t('noEncountersHint', 'No encounters found — start a visit and create an encounter first')}</p>
+            <p className={styles.encounterHint}>No encounters found — start a visit and create an encounter first</p>
           )}
         </Tile>
 
@@ -531,12 +467,11 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
               className={styles.micBtn}
               onClick={startRecording}
               disabled={!selectedEncounter || isLoadingManifest}
-              aria-label={t('holdToRecord', 'Hold to speak')}
             >
               <Microphone size={40} />
             </button>
             <p className={styles.micLabel}>
-              {selectedEncounter ? t('tapToRecord', 'Tap to start recording') : t('selectEncounterFirst', 'Select an encounter first')}
+              {selectedEncounter ? 'Tap to start recording' : 'Select an encounter first'}
             </p>
           </div>
         )}
@@ -544,11 +479,7 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         {/* Recording — click to stop */}
         {phase === 'recording' && (
           <div className={styles.micSection}>
-            <button
-              className={`${styles.micBtn} ${styles.micActive}`}
-              onClick={stopRecording}
-              aria-label={t('stopRecording', 'Stop recording')}
-            >
+            <button className={`${styles.micBtn} ${styles.micActive}`} onClick={stopRecording}>
               <MicrophoneFilled size={40} />
               <div className={styles.pulse} />
             </button>
@@ -559,9 +490,7 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
                 <div key={i} className={styles.bar} style={{ animationDelay: `${i * 0.05}s` }} />
               ))}
             </div>
-            <Button kind="danger" size="lg" onClick={stopRecording} className={styles.stopBtn}>
-              {t('stopAndProcess', 'Stop & Process')}
-            </Button>
+            <Button kind="danger" size="lg" onClick={stopRecording} className={styles.stopBtn}>Stop &amp; Process</Button>
           </div>
         )}
 
@@ -570,8 +499,8 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
           <Tile className={styles.processingCard}>
             <InlineLoading description="" />
             <div>
-              <h5>{t('processingAudio', 'Processing audio...')}</h5>
-              <p>{t('extractingObservations', 'Extracting clinical observations directly from audio recording')}</p>
+              <h5>Processing audio...</h5>
+              <p>Extracting clinical observations directly from audio recording</p>
             </div>
           </Tile>
         )}
@@ -580,14 +509,14 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
         {phase === 'review' && transcription && (
           <div className={styles.reviewSection}>
             <Tile className={styles.transcriptionCard}>
-              <Tag type="teal" size="sm">{t('audioProcessed', 'Audio Processed')}</Tag>
+              <Tag type="teal" size="sm">Audio Processed</Tag>
               <p className={styles.transcriptionText}>{transcription}</p>
             </Tile>
 
             {items.length > 0 ? (
               <>
                 <div className={styles.itemsHeader}>
-                  <h5>{t('extractedObservations', 'Extracted Observations')}</h5>
+                  <h5>Extracted Observations</h5>
                   <Tag type="green" size="sm">{items.filter((i) => i.checked).length} selected</Tag>
                 </div>
 
@@ -597,14 +526,9 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
                     className={`${styles.itemCard} ${item.checked ? styles.itemChecked : styles.itemUnchecked}`}
                     onClick={() => toggleItem(item.id)}
                   >
-                    {/* A-3: use the human-readable label as labelText instead of empty string */}
-                    <Checkbox
-                      id={`chk-${item.id}`}
-                      labelText={item.label.replace(/_/g, ' ')}
-                      checked={item.checked}
-                      onChange={() => toggleItem(item.id)}
-                    />
+                    <Checkbox id={`chk-${item.id}`} labelText="" checked={item.checked} onChange={() => toggleItem(item.id)} />
                     <div className={styles.itemContent}>
+                      <span className={styles.itemLabel}>{item.label.replace(/_/g, ' ')}</span>
                       <span className={styles.itemValue}>{item.value}</span>
                     </div>
                   </Tile>
@@ -619,17 +543,15 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
                     disabled={!selectedEncounter || !items.some((i) => i.checked)}
                     className={styles.confirmBtn}
                   >
-                    {t('confirmCount', 'Confirm ({{count}})', { count: items.filter((i) => i.checked).length })}
+                    Confirm ({items.filter((i) => i.checked).length})
                   </Button>
-                  <Button kind="ghost" size="sm" renderIcon={TrashCan} onClick={handleReset}>
-                    {t('discard', 'Discard')}
-                  </Button>
+                  <Button kind="ghost" size="sm" renderIcon={TrashCan} onClick={handleReset}>Discard</Button>
                 </div>
               </>
             ) : (
               <Tile className={styles.processingCard}>
-                <p>{t('noObservationsExtracted', 'No observations extracted. Try speaking more clearly.')}</p>
-                <Button kind="tertiary" size="sm" onClick={handleReset}>{t('tryAgain', 'Try Again')}</Button>
+                <p>No observations extracted. Try speaking more clearly.</p>
+                <Button kind="tertiary" size="sm" onClick={handleReset}>Try Again</Button>
               </Tile>
             )}
           </div>
@@ -640,10 +562,10 @@ const ScribeWorkspace: React.FC<ScribeWorkspaceProps> = ({
           <div className={styles.confirmedSection}>
             <Tile className={styles.confirmedCard}>
               <Checkmark size={32} />
-              <h5>{t('observationsConfirmed', 'Observations Confirmed')}</h5>
-              <p>{t('itemsReadyForOpenmrs', '{{count}} items ready for OpenMRS', { count: items.filter((i) => i.checked).length })}</p>
+              <h5>Observations Confirmed</h5>
+              <p>{items.filter((i) => i.checked).length} items ready for OpenMRS</p>
             </Tile>
-            <Button kind="tertiary" onClick={handleReset}>{t('recordAnother', 'Record Another Phrase')}</Button>
+            <Button kind="tertiary" onClick={handleReset}>Record Another Phrase</Button>
           </div>
         )}
       </div>

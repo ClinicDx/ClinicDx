@@ -23,32 +23,51 @@ OPENMRS_PASS = os.environ.get("OPENMRS_PASSWORD", "Admin123")
 ENCOUNTER_CONCEPT_MAP: dict[str, list[str]] = {
     # Vitals encounter
     "67a71486-1a54-468f-ac3e-7091a9a79584": [
-        "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242"
+        "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
+        "1342", "5314",
     ],
     # Visit Note / Consultation
     "d7151f82-c1f3-4152-a605-2f9ea7414a79": [
         "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
-        "21", "1006", "678", "679",
+        "1342", "159368", "160347", "166589", "161422",
+        "730", "5497", "160912", "169187", "167176", "887",
     ],
     "dd528487-82a5-4082-9c72-ed246bd49591": [
         "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
-        "21", "1006", "678", "679",
+        "1342", "159368", "160347", "166589", "161422",
+        "730", "5497", "160912", "169187", "167176", "887",
     ],
     # Lab Results
     "3596fafb-6f6f-4396-8c87-6e63a0f1bd71": [
-        "21", "1006", "678", "679", "1015", "1336", "1338", "1339", "1340", "1341",
-        "160913", "160232", "300", "5475",
+        "730", "5497", "160912", "169187", "167176", "887",
+        "162660", "5475",
     ],
     # Adult Visit
     "0e8230ce-bd1d-43f5-a863-cf44344fa4b0": [
         "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
-        "21", "1006",
+        "1342", "159368", "160347", "166589", "161422",
+        "730", "5497", "160912",
+    ],
+    # Antenatal / Obstetric visit
+    "e22e39fd-7db2-45e7-80f1-60fa0d5a4378": [
+        "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
+        "163166", "1160", "1439", "163460", "5916",
+        "165380", "166604",
+    ],
+    # Pediatric / Child visit
+    "6d88e570-a489-4e31-9e0a-5406c2e75d9e": [
+        "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
+        "5314", "1343", "5916", "166604",
     ],
 }
 
-# Fallback concept set for unknown encounter types
+# Fallback concept set for unknown encounter types — all trained concepts
 DEFAULT_CONCEPT_CODES = [
     "5088", "5085", "5086", "5087", "5092", "5089", "5090", "5242",
+    "1342", "159368", "160347", "166589", "161422",
+    "730", "5497", "160912", "169187", "167176", "887",
+    "163166", "1160", "1439", "163460", "5916", "165380", "166604",
+    "5314", "1343", "162660",
 ]
 
 # FHIR resource type per CIEL concept category
@@ -60,29 +79,43 @@ CONCEPT_FHIR_TYPE = {
 
 # Labels must match training data exactly (clips.jsonl manifest_line field).
 # The model was trained on these exact strings; any deviation breaks extraction.
+# Full 29-concept set derived from clips.jsonl concepts field.
 CIEL_LABELS: dict[str, dict] = {
-    "5088": {"label": "temperature_c", "manifest_line": "temperature_c (number, C)", "unit": "C", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5085": {"label": "systolic_blood_pressure", "manifest_line": "systolic_blood_pressure (number, mmHg)", "unit": "mmHg", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5086": {"label": "diastolic_blood_pressure", "manifest_line": "diastolic_blood_pressure (number, mmHg)", "unit": "mmHg", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5087": {"label": "pulse", "manifest_line": "pulse (number, beats/min)", "unit": "beats/min", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5092": {"label": "arterial_blood_oxygen_saturation_pulse_oximeter", "manifest_line": "arterial_blood_oxygen_saturation_pulse_oximeter (number)", "unit": "%", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5089": {"label": "weight_kg", "manifest_line": "weight_kg (number, kg)", "unit": "kg", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5090": {"label": "height_cm", "manifest_line": "height_cm (number, cm)", "unit": "cm", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "5242": {"label": "respiratory_rate", "manifest_line": "respiratory_rate (number)", "unit": "breaths/min", "fhir_type": "Observation", "category": "exam", "value_type": "Quantity"},
-    "21":   {"label": "haemoglobin", "manifest_line": "[test] haemoglobin", "unit": "g/dL", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1006": {"label": "total_cholesterol_mmol_l", "manifest_line": "[test] total_cholesterol_mmol_l", "unit": "mmol/L", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "678":  {"label": "white_blood_cells", "manifest_line": "[test] white_blood_cells", "unit": "10^3/uL", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "679":  {"label": "red_blood_cells", "manifest_line": "[test] red_blood_cells", "unit": "10^6/uL", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1015": {"label": "hematocrit", "manifest_line": "[test] hematocrit", "unit": "%", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1336": {"label": "neutrophils_microscopic_exam", "manifest_line": "[test] neutrophils_microscopic_exam", "unit": "%", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1338": {"label": "lymphocytes_microscopic_exam", "manifest_line": "[test] lymphocytes_microscopic_exam", "unit": "%", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1339": {"label": "monocytes_microscopic_exam", "manifest_line": "[test] monocytes_microscopic_exam", "unit": "%", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1340": {"label": "eosinophils_microscopic_exam", "manifest_line": "[test] eosinophils_microscopic_exam", "unit": "%", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "1341": {"label": "basophils_microscopic_exam", "manifest_line": "[test] basophils_microscopic_exam", "unit": "%", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "160913": {"label": "prostate_specific_antigen_psa_measurement_ng_ml", "manifest_line": "[test] prostate_specific_antigen_psa_measurement_ng_ml", "unit": "ng/mL", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
-    "160232": {"label": "rhesus_blood_grouping_test", "manifest_line": "[test] rhesus_blood_grouping_test", "unit": None, "fhir_type": "Observation", "category": "laboratory", "value_type": "CodeableConcept"},
-    "300":  {"label": "blood_typing", "manifest_line": "[test] blood_typing", "unit": None, "fhir_type": "Observation", "category": "laboratory", "value_type": "CodeableConcept"},
-    "5475": {"label": "tuberculin_skin_test_mm", "manifest_line": "[test] tuberculin_skin_test_mm", "unit": "mm", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    # ── Vitals ────────────────────────────────────────────────────────────────
+    "5088":   {"label": "temperature_c",                               "manifest_line": "temperature_c (number, C)",                               "unit": "C",           "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5085":   {"label": "systolic_blood_pressure",                     "manifest_line": "systolic_blood_pressure (number, mmHg)",                  "unit": "mmHg",        "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5086":   {"label": "diastolic_blood_pressure",                    "manifest_line": "diastolic_blood_pressure (number, mmHg)",                 "unit": "mmHg",        "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5087":   {"label": "pulse",                                       "manifest_line": "pulse (number, beats/min)",                               "unit": "beats/min",   "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5092":   {"label": "arterial_blood_oxygen_saturation_pulse_oximeter", "manifest_line": "arterial_blood_oxygen_saturation_pulse_oximeter (number)", "unit": "%",      "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5089":   {"label": "weight_kg",                                   "manifest_line": "weight_kg (number, kg)",                                  "unit": "kg",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5090":   {"label": "height_cm",                                   "manifest_line": "height_cm (number, cm)",                                  "unit": "cm",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5242":   {"label": "respiratory_rate",                            "manifest_line": "respiratory_rate (number)",                               "unit": "breaths/min", "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "1342":   {"label": "body_mass_index",                             "manifest_line": "body_mass_index (number, kg/m2)",                         "unit": "kg/m2",       "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    # ── General clinical ──────────────────────────────────────────────────────
+    "159368": {"label": "duration_of_illness",                         "manifest_line": "duration_of_illness (number)",                            "unit": None,          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "160347": {"label": "glasgow_coma_scale",                          "manifest_line": "glasgow_coma_scale (number)",                             "unit": None,          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "166589": {"label": "visual_analog_scale_pain_score",              "manifest_line": "visual_analog_scale_pain_score (number)",                 "unit": None,          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "161422": {"label": "number_of_missed_medication_doses_yesterday", "manifest_line": "number_of_missed_medication_doses_yesterday (number)",    "unit": None,          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "162660": {"label": "total_urine_output_over_24_hours_ml",         "manifest_line": "total_urine_output_over_24_hours_ml (number, mL)",        "unit": "mL",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    # ── Lab / Tests ───────────────────────────────────────────────────────────
+    "730":    {"label": "cd4_percent",                                 "manifest_line": "[test] cd4_percent (number)",                             "unit": "%",           "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    "5497":   {"label": "cd4_count",                                   "manifest_line": "[test] cd4_count (number)",                               "unit": "cells/uL",    "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    "160912": {"label": "fasting_blood_glucose_measurement_mg_dl",     "manifest_line": "[test] fasting_blood_glucose_measurement_mg_dl",          "unit": "mg/dL",       "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    "169187": {"label": "finger_stick_blood_glucose",                  "manifest_line": "[test] finger_stick_blood_glucose",                       "unit": "mg/dL",       "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    "167176": {"label": "post_prandial_blood_glucose_measurement_mg_dl_1_5_hour_after_meal", "manifest_line": "[test] post_prandial_blood_glucose_measurement_mg_dl_1_5_hour_after_meal", "unit": "mg/dL", "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    "887":    {"label": "serum_glucose",                               "manifest_line": "[test] serum_glucose",                                    "unit": "mg/dL",       "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    "5475":   {"label": "tuberculin_skin_test_mm",                     "manifest_line": "[test] tuberculin_skin_test_mm",                          "unit": "mm",          "fhir_type": "Observation", "category": "laboratory", "value_type": "Quantity"},
+    # ── Pediatric / Anthropometric ────────────────────────────────────────────
+    "5314":   {"label": "head_circumference",                          "manifest_line": "head_circumference (number, cm)",                         "unit": "cm",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "1343":   {"label": "mid_upper_arm_circumference_cm",              "manifest_line": "mid_upper_arm_circumference_cm (number)",                 "unit": "cm",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "5916":   {"label": "birth_weight_kg",                             "manifest_line": "birth_weight_kg (number, kg)",                            "unit": "kg",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "166604": {"label": "weight_on_admission_kg",                      "manifest_line": "weight_on_admission_kg (number, kg)",                     "unit": "kg",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    # ── Obstetric ─────────────────────────────────────────────────────────────
+    "163166": {"label": "estimated_gestational_age_weeks",             "manifest_line": "estimated_gestational_age_weeks (number)",                "unit": "weeks",       "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "1160":   {"label": "fetal_heart_rate",                            "manifest_line": "fetal_heart_rate (number)",                               "unit": "beats/min",   "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "1439":   {"label": "fundal_height",                               "manifest_line": "fundal_height (number, cm)",                              "unit": "cm",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "163460": {"label": "pre_gestational_weight_kg",                   "manifest_line": "pre_gestational_weight_kg (number, kg)",                  "unit": "kg",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
+    "165380": {"label": "weight_gain_since_last_visit_kg",             "manifest_line": "weight_gain_since_last_visit_kg (number, kg)",            "unit": "kg",          "fhir_type": "Observation", "category": "exam",       "value_type": "Quantity"},
 }
 
 
@@ -102,15 +135,13 @@ class ManifestBuilder:
             data = resp.json()
             return {
                 "encounter_uuid": encounter_uuid,
-                "patient_uuid": data.get("patient", {}).get("uuid"),
-                "encounter_type_uuid": data.get("encounterType", {}).get("uuid"),
-                "encounter_type_name": data.get("encounterType", {}).get("display"),
-                "location_uuid": data.get("location", {}).get("uuid"),
-                "location_name": data.get("location", {}).get("display"),
+                "patient_uuid": (data.get("patient") or {}).get("uuid"),
+                "encounter_type_uuid": (data.get("encounterType") or {}).get("uuid"),
+                "encounter_type_name": (data.get("encounterType") or {}).get("display"),
+                "location_uuid": (data.get("location") or {}).get("uuid"),
+                "location_name": (data.get("location") or {}).get("display"),
                 "provider_uuid": (
-                    data.get("encounterProviders", [{}])[0]
-                    .get("provider", {})
-                    .get("uuid")
+                    (data.get("encounterProviders", [{}])[0].get("provider") or {}).get("uuid")
                     if data.get("encounterProviders")
                     else None
                 ),

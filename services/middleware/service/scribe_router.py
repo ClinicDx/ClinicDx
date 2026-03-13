@@ -332,14 +332,120 @@ async def process_audio(
     import urllib.error
     from io import BytesIO
 
+    import subprocess as _subprocess
+    import struct as _struct
+
     audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(400, "Empty audio file")
+
+    # ── STAGE 0: Input diagnostics ──────────────────────────────────────────
+    logger.info("[SCRIBE_DIAG] ═══════════════════════════════════════════════")
+    logger.info("[SCRIBE_DIAG] STAGE 0 — INPUT")
+    logger.info("[SCRIBE_DIAG]   encounter=%s  patient=%s", encounter_uuid, patient_uuid)
+    logger.info("[SCRIBE_DIAG]   audio_bytes=%d  content_type=%s  filename=%s",
+                len(audio_bytes), audio.content_type, audio.filename)
+
+    # Detect format and transcode non-WAV audio to 16 kHz mono PCM-16 WAV via ffmpeg.
+    # Browsers send audio/webm (Chrome/Edge) or audio/ogg (Firefox) — neither is WAV.
+    # Also normalise existing WAVs to the model's expected format (16kHz, mono, 16-bit).
+    _is_wav = (
+        len(audio_bytes) >= 44
+        and audio_bytes[:4] == b"RIFF"
+        and audio_bytes[8:12] == b"WAVE"
+    )
+    _wav_sr = _wav_ch = _wav_bits = None
+    if _is_wav:
+        try:
+            _wav_ch   = _struct.unpack_from("<H", audio_bytes, 22)[0]
+            _wav_sr   = _struct.unpack_from("<I", audio_bytes, 24)[0]
+            _wav_bits = _struct.unpack_from("<H", audio_bytes, 34)[0]
+        except Exception:
+            pass
+
+    _needs_transcode = (
+        not _is_wav
+        or (_wav_sr and _wav_sr != 16000)
+        or (_wav_ch and _wav_ch != 1)
+        or (_wav_bits and _wav_bits not in (16, 32))
+    )
+
+    if _needs_transcode:
+        logger.info("[SCRIBE_DIAG]   transcoding via ffmpeg (is_wav=%s sr=%s ch=%s bits=%s)",
+                    _is_wav, _wav_sr, _wav_ch, _wav_bits)
+        try:
+            # Write to a real temp file (not pipe) so ffmpeg can seek back and
+            # fill in the correct WAV data_size header. pipe:1 output leaves
+            # data_size=0xFFFFFFFF which causes integer overflow in the C++ parser.
+            import tempfile as _tempfile
+            with _tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as _tmp_in:
+                _tmp_in_path = _tmp_in.name
+            _tmp_out_path = _tmp_in_path.replace(".wav", "_out.wav")
+            try:
+                with open(_tmp_in_path, "wb") as _f:
+                    _f.write(audio_bytes)
+                proc = _subprocess.run(
+                    [
+                        "ffmpeg", "-hide_banner", "-loglevel", "error",
+                        "-i", _tmp_in_path,  # read from real file
+                        "-ar", "16000",      # resample to 16 kHz
+                        "-ac", "1",          # mono
+                        "-sample_fmt", "s16",# 16-bit signed PCM
+                        "-f", "wav",
+                        "-y",                # overwrite output
+                        _tmp_out_path,       # write to real file (valid data_size header)
+                    ],
+                    capture_output=True,
+                    timeout=30,
+                )
+                if proc.returncode != 0:
+                    err = proc.stderr.decode(errors="replace")[:300]
+                    logger.error("[SCRIBE_DIAG]   ffmpeg failed (rc=%d): %s", proc.returncode, err)
+                    raise HTTPException(400, f"Audio transcoding failed: {err}")
+                with open(_tmp_out_path, "rb") as _f:
+                    audio_bytes = _f.read()
+            finally:
+                for _p in (_tmp_in_path, _tmp_out_path):
+                    try:
+                        os.unlink(_p)
+                    except OSError:
+                        pass
+            logger.info("[SCRIBE_DIAG]   transcoded → %d bytes WAV (16kHz mono 16-bit)", len(audio_bytes))
+            # Re-parse header after transcode
+            try:
+                _wav_ch   = _struct.unpack_from("<H", audio_bytes, 22)[0]
+                _wav_sr   = _struct.unpack_from("<I", audio_bytes, 24)[0]
+                _wav_bits = _struct.unpack_from("<H", audio_bytes, 34)[0]
+            except Exception:
+                pass
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("[SCRIBE_DIAG]   ffmpeg exception: %s", exc)
+            raise HTTPException(400, f"Audio transcoding error: {exc}")
+    else:
+        logger.info("[SCRIBE_DIAG]   audio already valid WAV (sr=%s ch=%s bits=%s)",
+                    _wav_sr, _wav_ch, _wav_bits)
+
+    logger.info("[SCRIBE_DIAG]   WAV header: channels=%s sr=%s bits=%s",
+                _wav_ch, _wav_sr, _wav_bits)
+    if _wav_sr and _wav_sr != 16000:
+        logger.warning("[SCRIBE_DIAG]   ⚠ SAMPLE RATE MISMATCH: WAV is %d Hz, model expects 16000 Hz", _wav_sr)
+    if _wav_ch and _wav_ch != 1:
+        logger.warning("[SCRIBE_DIAG]   ⚠ CHANNEL MISMATCH: WAV has %d channels, model expects mono", _wav_ch)
+
+    # ── STAGE 1: Manifest diagnostics ──────────────────────────────────────
+    logger.info("[SCRIBE_DIAG] STAGE 1 — MANIFEST")
+    manifest_lines = [l.strip() for l in manifest_string.splitlines() if l.strip()]
+    logger.info("[SCRIBE_DIAG]   manifest_string length=%d chars  lines=%d",
+                len(manifest_string), len(manifest_lines))
+    logger.info("[SCRIBE_DIAG]   manifest first 500 chars:\n%s", manifest_string[:500])
 
     try:
         lookup_dict = _json.loads(lookup)
     except _json.JSONDecodeError:
         lookup_dict = {}
+    logger.info("[SCRIBE_DIAG]   lookup_dict keys (%d): %s", len(lookup_dict), list(lookup_dict.keys())[:20])
 
     boundary = "----FormBoundary" + os.urandom(8).hex()
     body_parts = []
@@ -358,6 +464,10 @@ async def process_audio(
     body_parts.append(f"--{boundary}--\r\n".encode())
     body = b"".join(body_parts)
 
+    # ── STAGE 2: Model server call ──────────────────────────────────────────
+    logger.info("[SCRIBE_DIAG] STAGE 2 — MODEL SERVER REQUEST")
+    logger.info("[SCRIBE_DIAG]   url=%s/v1/audio/extract  body_size=%d bytes",
+                MODEL_SERVER_URL, len(body))
     req = urllib.request.Request(
         f"{MODEL_SERVER_URL}/v1/audio/extract",
         data=body,
@@ -365,20 +475,36 @@ async def process_audio(
         method="POST",
     )
 
+    import time as _time
+    _t0 = _time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=120) as r:
             result = _json.loads(r.read())
     except urllib.error.HTTPError as e:
         err = e.read().decode()[:300]
-        logger.error("Audio extract error %s: %s", e.code, err)
+        logger.error("[SCRIBE_DIAG]   ✗ HTTP %s: %s", e.code, err)
         raise HTTPException(502, f"Model server error: {err}")
     except Exception as e:
-        logger.error("Audio extract failed: %s", e)
+        logger.error("[SCRIBE_DIAG]   ✗ connection error: %s", e)
         raise HTTPException(502, f"Model server unreachable: {e}")
+    _elapsed_ms = (_time.monotonic() - _t0) * 1000
 
     raw_output = result.get("raw_output", "")
     model_obs = result.get("observations", [])
+    model_duration_ms = result.get("duration_ms", 0)
 
+    # ── STAGE 3: Raw model output ───────────────────────────────────────────
+    logger.info("[SCRIBE_DIAG] STAGE 3 — RAW MODEL OUTPUT")
+    logger.info("[SCRIBE_DIAG]   round_trip_ms=%.0f  model_duration_ms=%d",
+                _elapsed_ms, model_duration_ms)
+    logger.info("[SCRIBE_DIAG]   raw_output_len=%d chars  obs_count=%d",
+                len(raw_output), len(model_obs))
+    logger.info("[SCRIBE_DIAG]   raw_output:\n%s", raw_output[:1000])
+    logger.info("[SCRIBE_DIAG]   raw observations from model:")
+    for idx, o in enumerate(model_obs):
+        logger.info("[SCRIBE_DIAG]     obs[%d]: key=%r  value=%r", idx, o.get("key", o.get("label")), o.get("value"))
+
+    # ── backward-compat logging ─────────────────────────────────────────────
     logger.info("[process_audio] encounter=%s, patient=%s", encounter_uuid, patient_uuid)
     logger.info("[process_audio] lookup_dict keys: %s", list(lookup_dict.keys()))
     logger.info("[process_audio] model returned %d observations, raw_output=%d chars",
@@ -399,27 +525,84 @@ async def process_audio(
 
     logger.info("[process_audio] manifest_labels: %s", manifest_labels)
 
+    # ── STAGE 4: Concept lookup diagnostics ────────────────────────────────
+    logger.info("[SCRIBE_DIAG] STAGE 4 — CONCEPT LOOKUP")
+    logger.info("[SCRIBE_DIAG]   manifest_labels (%d): %s", len(manifest_labels), sorted(manifest_labels))
+    logger.info("[SCRIBE_DIAG]   lookup_dict keys (%d): %s", len(lookup_dict), sorted(lookup_dict.keys())[:30])
+
     items: list[ExtractedItem] = []
+    seen_labels: set = set()  # FIX: deduplicate — keep first occurrence per normalised label
     for i, obs in enumerate(model_obs):
-        label = obs.get("label", "").strip()
+        raw_key = obs.get("key", obs.get("label", ""))
+        # C++ parser emits {"key": ..., "value": ...} — support both field names
+        label = (obs.get("label") or obs.get("key") or "").strip()
+        # Strip leading underscores the model sometimes prepends
+        label_after_underscore = label.lstrip("_").strip()
+        # Strip bracket-type prefixes the model learned: [test], [drug], [value], etc.
+        label = re.sub(r'^\[.*?\]\s*', '', label_after_underscore).strip()
         value = obs.get("value", "").strip()
+
+        # FIX: strip JSON fragments that leak into value (e.g. '80h", "patient_id": "patient_id"')
+        # Keep only the content up to the first unquoted JSON structural character
+        value = re.split(r'(?<![0-9])["\'{}\[\]]', value)[0].strip().rstrip(',').strip()
+
+        # FIX: strip trailing unit suffixes from Quantity values so '175cm' → '175', '38.5C' → '38.5'
+        # Only strip alpha suffix when the value starts with a digit (numeric measurement)
+        value_clean = re.sub(r'^([0-9]+(?:\.[0-9]+)?)\s*[a-zA-Z%/]+$', r'\1', value)
+        if value_clean != value:
+            logger.info("[SCRIBE_DIAG]     unit suffix stripped: %r → %r", value, value_clean)
+            value = value_clean
+
+        logger.info("[SCRIBE_DIAG]   obs[%d] raw_key=%r → after_underscore=%r → after_bracket=%r  value=%r",
+                    i, raw_key, label_after_underscore, label, value)
+
         if not label or not value:
+            logger.info("[SCRIBE_DIAG]     ✗ SKIP: empty label or value after cleaning")
             logger.info("[process_audio] SKIP obs[%d]: empty label or value", i)
             continue
         if any(neg in value.lower() for neg in ["not present", "not mentioned", "n/a"]):
+            logger.info("[SCRIBE_DIAG]     ✗ SKIP: negative value sentinel %r", value)
             logger.info("[process_audio] SKIP obs[%d]: negative value %r", i, value)
             continue
 
         concept_meta = lookup_dict.get(label)
 
+        # FIX: truncated key recovery — model sometimes emits '_kg: 30' instead of 'weight_kg: 30'
+        # If direct lookup misses, check if the cleaned label is a suffix of any manifest key
+        if concept_meta is None and label and len(label) >= 2:
+            for mk in lookup_dict:
+                if mk.endswith("_" + label) or mk == label:
+                    logger.info("[SCRIBE_DIAG]     suffix-match: %r → manifest key %r", label, mk)
+                    label = mk
+                    concept_meta = lookup_dict[mk]
+                    break
+
+        logger.info("[SCRIBE_DIAG]     lookup_dict.get(%r) → %s", label,
+                    "FOUND uuid=%s" % concept_meta.get("uuid","?") if concept_meta else "NOT_FOUND")
+
+        if concept_meta is None:
+            # Show closest keys by prefix for debugging
+            close = [k for k in lookup_dict if k.startswith(label[:6])] if len(label) >= 6 else []
+            if close:
+                logger.info("[SCRIBE_DIAG]     nearest keys with prefix %r: %s", label[:6], close[:5])
+
         if value.lower().strip() in ("absent", "not present", "negative"):
+            logger.info("[SCRIBE_DIAG]     ✗ SKIP: absent/negative value")
             logger.info("[process_audio] SKIP obs[%d] %r: absent", i, label)
             continue
 
         # "present" without a number means detection only — skip for Quantity concepts
         if value.lower().strip() == "present" and concept_meta and concept_meta.get("value_type") == "Quantity":
+            logger.info("[SCRIBE_DIAG]     ✗ SKIP: 'present' for Quantity concept")
             logger.info("[process_audio] SKIP obs[%d] %r: 'present' but Quantity expects a number", i, label)
             continue
+
+        # FIX: deduplicate — if we already accepted this label, skip subsequent occurrences
+        if label in seen_labels:
+            logger.info("[SCRIBE_DIAG]     ✗ SKIP: duplicate label %r (already accepted)", label)
+            logger.info("[process_audio] SKIP obs[%d] %r: duplicate", i, label)
+            continue
+        seen_labels.add(label)
 
         readable_label = label.replace("_", " ").title()
         readable = f"{readable_label}: {value}"
@@ -456,6 +639,19 @@ async def process_audio(
 
     logger.info("[process_audio] RESULT: %d items built, %d with fhir_payload",
                 len(items), sum(1 for it in items if it.fhir_payload))
+
+    # ── STAGE 5: Final summary ──────────────────────────────────────────────
+    logger.info("[SCRIBE_DIAG] STAGE 5 — FINAL RESULT SUMMARY")
+    logger.info("[SCRIBE_DIAG]   total_items=%d  items_with_fhir=%d  items_no_fhir=%d",
+                len(items),
+                sum(1 for it in items if it.fhir_payload),
+                sum(1 for it in items if not it.fhir_payload))
+    for it in items:
+        logger.info("[SCRIBE_DIAG]   item label=%r value=%r fhir=%s not_in_manifest=%s",
+                    it.label, it.value,
+                    "YES" if it.fhir_payload else "NO",
+                    it.not_in_manifest)
+    logger.info("[SCRIBE_DIAG] ═══════════════════════════════════════════════")
 
     return ProcessResponse(
         transcription="[direct audio — no text intermediate]",

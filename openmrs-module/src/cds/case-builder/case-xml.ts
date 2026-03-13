@@ -66,9 +66,7 @@ const DATETIME_OBS: Set<string> = new Set([
 
 // ── Obs rendering ──────────────────────────────────────────────────
 
-type ObsValue = string | number | boolean | { display: string; uuid?: string } | null;
-
-function fmtValue(raw: ObsValue): string {
+function fmtValue(raw: any): string {
   if (raw == null) return '';
   if (typeof raw === 'object') return raw.display ?? String(raw);
   return String(raw);
@@ -127,7 +125,7 @@ function renderObs(lines: string[], obs: Obs): void {
 
 // ── Main builder ───────────────────────────────────────────────────
 
-export function buildCaseText(
+export function buildCaseXml(
   patient: PatientFull,
   encounters: Encounter[],
 ): string {
