@@ -4,7 +4,7 @@
 
 # ClinicDx
 
-### Offline AI Clinical Intelligence for Sub-Saharan Africa
+### Offline AI Clinical Intelligence
 
 **Clinical Decision Support · Voice Scribe · Document OCR · Imaging Analysis**
 
