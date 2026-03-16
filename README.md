@@ -15,7 +15,7 @@ Powered by [MedGemma](https://huggingface.co/google/medgemma-4b-it) · Works wit
 [![HuggingFace](https://img.shields.io/badge/🤗%20Model-ClinicDx1%2FClinicDx-yellow)](https://huggingface.co/ClinicDx1/ClinicDx)
 [![Website](https://img.shields.io/badge/Website-clinicdx.org-informational)](https://clinicdx.org)
 
-[**Website**](https://clinicdx.org) · [**Model on HuggingFace**](https://huggingface.co/ClinicDx1/ClinicDx) · [**Documentation**](docs/) · [**Report a Bug**](https://github.com/brookyale0512/ClinicDx-/issues)
+[**Website**](https://clinicdx.org) · [**Model on HuggingFace**](https://huggingface.co/ClinicDx1/ClinicDx) · [**Documentation**](docs/) · [**Report a Bug**](https://github.com/ClinicDx/ClinicDx/issues)
 
 </div>
 
@@ -228,7 +228,7 @@ ClinicDx/
 ### Option A: Engine Only (any EMR)
 
 ```bash
-git clone https://github.com/brookyale0512/ClinicDx-.git && cd ClinicDx-
+git clone https://github.com/ClinicDx/ClinicDx.git && cd ClinicDx
 cp .env.example .env
 make up           # GPU
 # or: make up-cpu # CPU only
@@ -256,7 +256,7 @@ curl -X POST http://localhost:8321/cds/generate \
 ### Option B: Full Stack (with nginx + OpenMRS)
 
 ```bash
-git clone https://github.com/brookyale0512/ClinicDx-.git && cd ClinicDx-
+git clone https://github.com/ClinicDx/ClinicDx.git && cd ClinicDx
 cp .env.example .env
 
 # Generate SSL certs (development)
@@ -536,8 +536,8 @@ Contributions are welcome. Please open an issue before submitting a pull request
 
 ```bash
 # Clone and set up development environment
-git clone https://github.com/brookyale0512/ClinicDx-.git
-cd ClinicDx-
+git clone https://github.com/ClinicDx/ClinicDx.git
+cd ClinicDx
 
 # Run unit tests
 make test-unit
@@ -575,7 +575,7 @@ Model weights are subject to the [Gemma Terms of Use](https://ai.google.dev/gemm
 
 <div align="center">
 
-**[clinicdx.org](https://clinicdx.org)** · **[HuggingFace](https://huggingface.co/ClinicDx1/ClinicDx)** · **[GitHub](https://github.com/brookyale0512/ClinicDx-)** · **[Issues](https://github.com/brookyale0512/ClinicDx-/issues)**
+**[clinicdx.org](https://clinicdx.org)** · **[HuggingFace](https://huggingface.co/ClinicDx1/ClinicDx)** · **[GitHub](https://github.com/ClinicDx/ClinicDx)** · **[Issues](https://github.com/ClinicDx/ClinicDx/issues)**
 
 *Built for clinicians in under-resourced settings. Every observation captured, every diagnosis supported.*
 

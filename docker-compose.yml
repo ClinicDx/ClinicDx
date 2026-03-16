@@ -34,7 +34,7 @@ services:
     build:
       context: .
       dockerfile: docker/kb/Dockerfile
-    image: ghcr.io/brookyale0512/clinicdx-kb:latest
+    image: ghcr.io/clinicdx/clinicdx-kb:latest
     restart: unless-stopped
     logging:
       driver: json-file
@@ -70,7 +70,7 @@ services:
     build:
       context: .
       dockerfile: docker/model/Dockerfile.gpu
-    image: ghcr.io/brookyale0512/clinicdx-model-gpu:latest
+    image: ghcr.io/clinicdx/clinicdx-model-gpu:latest
     profiles: ["gpu"]
     restart: unless-stopped
     logging: *default-logging
@@ -109,7 +109,7 @@ services:
     build:
       context: .
       dockerfile: docker/model/Dockerfile.gpu
-    image: ghcr.io/brookyale0512/clinicdx-model-gpu:latest
+    image: ghcr.io/clinicdx/clinicdx-model-gpu:latest
     profiles: ["cpu"]
     restart: unless-stopped
     logging: *default-logging
@@ -141,7 +141,7 @@ services:
     build:
       context: .
       dockerfile: docker/middleware/Dockerfile
-    image: ghcr.io/brookyale0512/clinicdx-middleware:latest
+    image: ghcr.io/clinicdx/clinicdx-middleware:latest
     restart: unless-stopped
     logging: *default-logging
     ports:

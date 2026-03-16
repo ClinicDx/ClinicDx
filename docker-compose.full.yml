@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: docker/nginx/Dockerfile
-    image: ghcr.io/brookyale0512/clinicdx-nginx:latest
+    image: ghcr.io/clinicdx/clinicdx-nginx:latest
     restart: unless-stopped
     logging:
       driver: json-file
