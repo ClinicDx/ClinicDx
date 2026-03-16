@@ -106,12 +106,12 @@ Google MedGemma 4B-IT  (base)
  │           ┌─────────┘                    └──────────┐           │
  │           ▼                                         ▼           │
  │  ┌─────────────────────┐         ┌─────────────────────────┐    │
- │  │  KB Daemon v2 :4276 │         │  llama-server :8180      │   │
- │  │                     │         │                          │   │
- │  │  WHO Guidelines     │         │  MedASR Encoder (105M)   │   │
- │  │  MSF Protocols      │         │  AudioProjector v3       │   │
- │  │  BM25 + Semantic    │         │  ClinicDx LLM (4.3B, Q8) │   │
- │  │  Hybrid Retrieval   │         │                          │   │
+ │  │  KB Daemon v2 :4276 │         │  llama-server :8180     │    │
+ │  │                     │         │                         │    │
+ │  │  WHO Guidelines     │         │  MedASR Encoder (105M)  │    │
+ │  │  MSF Protocols      │         │  AudioProjector v3      │    │
+ │  │  BM25 + Semantic    │         │  ClinicDx LLM (4.3B, Q8)│    │
+ │  │  Hybrid Retrieval   │         │                         │    │
  │  └─────────────────────┘         └─────────────────────────┘    │
  └─────────────────────────────┬───────────────────────────────────┘
                                │
