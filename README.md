@@ -218,10 +218,10 @@ ClinicDx/
 | Requirement | Version |
 |---|---|
 | Docker Engine | ≥ 24 |
-| Docker Compose plugin | ≥ 2.20 |
-| NVIDIA Container Toolkit *(GPU mode)* | CUDA 12.x |
+| Docker Compose plugin | ≥ 2.24 |
+| NVIDIA Container Toolkit *(GPU mode)* | CUDA 11.8+ |
 | GPU VRAM *(GPU mode)* | ≥ 8 GB |
-| Disk space | ~20 GB (models + KB index + embeddings) |
+| Disk space | ~10 GB (models + KB index + embeddings + Docker images) |
 
 ### Option A: Engine Only (any EMR)
 
