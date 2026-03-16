@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/clinicdx-logo.png" alt="ClinicDx" width="120" />
-
 # ClinicDx
 
 ### Offline AI Clinical Intelligence
@@ -16,7 +14,7 @@ Powered by [MedGemma](https://huggingface.co/google/medgemma-4b-it) · Works wit
 [![HuggingFace](https://img.shields.io/badge/🤗%20Model-ClinicDx1%2FClinicDx-yellow)](https://huggingface.co/ClinicDx1/ClinicDx)
 [![Website](https://img.shields.io/badge/Website-clinicdx.org-informational)](https://clinicdx.org)
 
-[**Website**](https://clinicdx.org) · [**npm Package**](https://www.npmjs.com/package/@clinicdx/esm-clinicdx-app) · [**Model on HuggingFace**](https://huggingface.co/ClinicDx1/ClinicDx) · [**Documentation**](docs/) · [**Report a Bug**](https://github.com/ClinicDx/ClinicDx/issues)
+[**Website**](https://clinicdx.org) · [**npm Package**](https://www.npmjs.com/package/@clinicdx/esm-clinicdx-app) · [**Model on HuggingFace**](https://huggingface.co/ClinicDx1/ClinicDx) · [**Report a Bug**](https://github.com/ClinicDx/ClinicDx/issues)
 
 </div>
 
@@ -176,32 +174,39 @@ ClinicDx/
 ├── openmrs-module/              OpenMRS O3 ESM microfrontend (TypeScript/React)
 │   └── src/
 │       ├── cds/                 CDS workspace and action button
-│       │   └── case-builder/    OpenMRS patient API + middleware API types
+│       │   └── case-builder/    Patient API + middleware API types
 │       ├── scribe/              Voice Scribe workspace
 │       ├── imaging/             Imaging analysis workspace
 │       └── ocr/                 OCR workspace
 │
 ├── services/
 │   ├── middleware/              FastAPI middleware (CDS orchestration + Scribe)
-│   │   ├── api.py               FastAPI app entry point
 │   │   └── service/
+│   │       ├── api.py           FastAPI app entry point
 │   │       ├── cds_router.py    Multi-turn CDS + SSE streaming
 │   │       ├── scribe_router.py Audio → FHIR pipeline (OpenMRS endpoints guarded)
 │   │       ├── manifest.py      Encounter → concept manifest (29 CIEL concepts)
 │   │       ├── fhir_builder.py  FHIR R4 resource construction
 │   │       └── ciel_mappings.json  CIEL concept → OpenMRS UUID map
 │   │
-│   └── knowledge-base/          Knowledge Base daemon (v2.1 index)
-│       └── kb/
-│           ├── daemon_v2.py     HTTP server (port 4276)
-│           ├── retrieval_core_v2.py  BM25 + semantic hybrid retrieval
-│           └── embedder.py      EmbedGemma 300M wrapper
+│   ├── knowledge-base/          Knowledge Base daemon (v2.1 index)
+│   │   └── kb/
+│   │       ├── daemon_v2.py     HTTP server (port 4276)
+│   │       ├── retrieval_core_v2.py  BM25 + semantic hybrid retrieval
+│   │       └── embedder.py      EmbedGemma 300M wrapper
+│   │
+│   └── unified-model-server/    Unified model server (experimental)
+│       └── serve_unified.py     Single-process model serving
 │
-└── docker/
-    ├── kb/                      KB Dockerfile + entrypoint (auto-downloads MV2 + EmbedGemma)
-    ├── model/                   Model Dockerfile + entrypoint (auto-downloads GGUFs)
-    ├── middleware/              Middleware Dockerfile
-    └── nginx/                   Nginx Dockerfile + config (full stack only)
+├── docker/
+│   ├── kb/                      KB Dockerfile + entrypoint (auto-downloads MV2 + EmbedGemma)
+│   ├── model/                   Model Dockerfile + entrypoint (auto-downloads GGUFs)
+│   ├── middleware/              Middleware Dockerfile
+│   └── nginx/                   Nginx Dockerfile + config (full stack only)
+│
+└── docs/
+    ├── architecture.md          System architecture details
+    └── deployment.md            Deployment guide
 ```
 
 ---
@@ -428,33 +433,30 @@ Configure via **System Administration → Advanced Settings** in the OpenMRS adm
 
 ## Testing
 
-### Unit Tests (no running stack required)
+### OpenMRS Frontend Module
 
 ```bash
-# All unit tests
-make test-unit
-
-# Middleware
-pytest tests/unit/middleware/ -v
-
-# Knowledge Base
-pytest tests/unit/kb/ -v
-
-# Frontend (Jest)
-npx jest --config tests/unit/frontend/jest.config.js -v
+cd openmrs-module
+npm install
+npm test          # Jest unit tests
+npm run build     # Webpack production build
 ```
 
-### Integration Tests (requires running stack)
+### Smoke Test (requires running stack)
 
 ```bash
-make up
-make test-int
+# Verify the engine is healthy
+curl http://localhost:8321/api/health
 
-# Individual suites
-pytest tests/integration/test_kb_endpoint.py -v
-pytest tests/integration/test_model_health.py -v
-pytest tests/integration/test_middleware_cds.py -v
-pytest tests/integration/test_e2e_scribe.py -v
+# Test CDS endpoint
+curl -X POST http://localhost:8321/cds/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "<bos><start_of_turn>user\nPatient: 5-year-old, fever 39°C for 3 days, cough.\n<end_of_turn>\n<start_of_turn>model\n"}'
+
+# Test KB search
+curl -X POST http://kb-host:4276/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "malaria treatment", "top_k": 5}'
 ```
 
 ---
