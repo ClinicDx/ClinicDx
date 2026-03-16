@@ -95,24 +95,24 @@ Google MedGemma 4B-IT  (base)
 
 ```
  ┌─────────────────────────────────────────────────────────────────┐
- │                Component 1: CDS Engine (Docker)                  │
- │                                                                  │
+ │                Component 1: CDS Engine (Docker)                 │
+ │                                                                 │
  │  ┌────────────────────────────────────────────────────────────┐ │
- │  │  FastAPI Middleware  :8321 (exposed to host)                │ │
+ │  │  FastAPI Middleware  :8321 (exposed to host)               │ │
  │  │   cds_router.py    — Multi-turn ReAct CDS + SSE streaming  │ │
  │  │   scribe_router.py — Audio → structured observations       │ │
  │  └──────────────────┬────────────────────┬────────────────────┘ │
- │                     │                    │                       │
+ │                     │                    │                      │
  │           ┌─────────┘                    └──────────┐           │
  │           ▼                                         ▼           │
- │  ┌─────────────────────┐         ┌─────────────────────────┐   │
+ │  ┌─────────────────────┐         ┌─────────────────────────┐    │
  │  │  KB Daemon v2 :4276 │         │  llama-server :8180      │   │
  │  │                     │         │                          │   │
  │  │  WHO Guidelines     │         │  MedASR Encoder (105M)   │   │
  │  │  MSF Protocols      │         │  AudioProjector v3       │   │
  │  │  BM25 + Semantic    │         │  ClinicDx LLM (4.3B, Q8) │   │
  │  │  Hybrid Retrieval   │         │                          │   │
- │  └─────────────────────┘         └─────────────────────────┘   │
+ │  └─────────────────────┘         └─────────────────────────┘    │
  └─────────────────────────────┬───────────────────────────────────┘
                                │
                     REST API (any EMR can call)
