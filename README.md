@@ -11,11 +11,12 @@
 Powered by [MedGemma](https://huggingface.co/google/medgemma-4b-it) · Works with [OpenMRS O3](https://openmrs.org/) or any EMR · Runs fully offline
 
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@clinicdx/esm-clinicdx-app?label=npm&color=cb3837)](https://www.npmjs.com/package/@clinicdx/esm-clinicdx-app)
 [![OpenMRS](https://img.shields.io/badge/OpenMRS-O3-blue?logo=data:image/svg+xml;base64,)](https://openmrs.org/)
 [![HuggingFace](https://img.shields.io/badge/🤗%20Model-ClinicDx1%2FClinicDx-yellow)](https://huggingface.co/ClinicDx1/ClinicDx)
 [![Website](https://img.shields.io/badge/Website-clinicdx.org-informational)](https://clinicdx.org)
 
-[**Website**](https://clinicdx.org) · [**Model on HuggingFace**](https://huggingface.co/ClinicDx1/ClinicDx) · [**Documentation**](docs/) · [**Report a Bug**](https://github.com/ClinicDx/ClinicDx/issues)
+[**Website**](https://clinicdx.org) · [**npm Package**](https://www.npmjs.com/package/@clinicdx/esm-clinicdx-app) · [**Model on HuggingFace**](https://huggingface.co/ClinicDx1/ClinicDx) · [**Documentation**](docs/) · [**Report a Bug**](https://github.com/ClinicDx/ClinicDx/issues)
 
 </div>
 
@@ -123,8 +124,8 @@ Google MedGemma 4B-IT  (base)
          ▼                     ▼                      ▼
  ┌───────────────┐    ┌──────────────┐     ┌──────────────────┐
  │ OpenMRS O3    │    │ Other EMR    │     │ curl / any       │
- │ @openmrs/esm- │    │ (FHIR, REST) │     │ HTTP client      │
- │ clinicdx-app  │    │              │     │                  │
+ │ @clinicdx/esm │    │ (FHIR, REST) │     │ HTTP client      │
+ │ -clinicdx-app │    │              │     │                  │
  │ (Component 2) │    │              │     │                  │
  └───────────────┘    └──────────────┘     └──────────────────┘
 ```
@@ -575,7 +576,7 @@ Model weights are subject to the [Gemma Terms of Use](https://ai.google.dev/gemm
 
 <div align="center">
 
-**[clinicdx.org](https://clinicdx.org)** · **[HuggingFace](https://huggingface.co/ClinicDx1/ClinicDx)** · **[GitHub](https://github.com/ClinicDx/ClinicDx)** · **[Issues](https://github.com/ClinicDx/ClinicDx/issues)**
+**[clinicdx.org](https://clinicdx.org)** · **[npm](https://www.npmjs.com/package/@clinicdx/esm-clinicdx-app)** · **[HuggingFace](https://huggingface.co/ClinicDx1/ClinicDx)** · **[GitHub](https://github.com/ClinicDx/ClinicDx)** · **[Issues](https://github.com/ClinicDx/ClinicDx/issues)**
 
 *Built for clinicians in under-resourced settings. Every observation captured, every diagnosis supported.*
 
